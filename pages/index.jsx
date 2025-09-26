@@ -16,6 +16,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [wordCount, setWordCount] = useState(0);
   const [showToast, setShowToast] = useState(false);
+  const [toastMsg, setToastMsg] = useState('');
   const [timestamp, setTimestamp] = useState("");
   const [showResult, setShowResult] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -829,7 +830,46 @@ export default function Home() {
             ✅ Copied to clipboard!
           </div>
         )}
+        {toastMsg && (
+          <div style={{
+            position: 'fixed',
+            bottom: 20,
+            right: 20,
+            backgroundColor: '#222',
+            color: '#fff',
+            padding: '10px 16px',
+            borderRadius: 6,
+            boxShadow: '0 6px 20px rgba(0,0,0,0.4)',
+            zIndex: 10000
+          }}>
+            {toastMsg}
+          </div>
+        )}
       </div>
+      <ConfirmModal
+        open={confirmOpen}
+        title={confirmTarget && confirmTarget.type === 'chat' ? 'Delete Chat?' : 'Confirm'}
+        message={confirmTarget && confirmTarget.type === 'chat' ? 'This will permanently delete the selected chat.' : ''}
+        confirmText="Delete"
+        cancelText="Cancel"
+        onCancel={() => { setConfirmOpen(false); setConfirmTarget(null); }}
+        onConfirm={() => {
+          // Handle confirmed delete
+          if (confirmTarget && confirmTarget.type === 'chat') {
+            const id = confirmTarget.id;
+            setChats(prev => prev.filter(c => c.id !== id));
+            if (activeChatId === id) {
+              setActiveChatId(null);
+              setMessages([]);
+              setShowResult(false);
+            }
+            setToastMsg('Chat deleted');
+            setTimeout(() => setToastMsg(''), 2500);
+          }
+          setConfirmOpen(false);
+          setConfirmTarget(null);
+        }}
+      />
     </AuthGate>
   );
 }

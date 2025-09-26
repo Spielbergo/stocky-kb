@@ -3,6 +3,7 @@ import dynamic from 'next/dynamic';
 import AuthGate from '../components/AuthGate';
 import NavBar from '../components/NavBar';
 import ErrorBoundary from '../components/ErrorBoundary';
+import ConfirmModal from '../components/ConfirmModal';
 // Load react-chartjs-2 Line component only on the client to avoid SSR issues
 const Line = dynamic(() => import('react-chartjs-2').then(mod => mod.Line), { ssr: false });
 
@@ -58,6 +59,10 @@ export default function StocksPage() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
   const [activeMenuTicker, setActiveMenuTicker] = useState(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmTarget, setConfirmTarget] = useState(null); // { type: 'ticker', ticker: 'AAPL' }
+  const [toastMsg, setToastMsg] = useState('');
+  const [cachedLoading, setCachedLoading] = useState(false);
 
   useEffect(() => {
     if (!query) {
@@ -92,12 +97,15 @@ export default function StocksPage() {
   }, [chartReady]);
 
   const fetchCachedList = async () => {
+    setCachedLoading(true);
     try {
       const res = await fetch('/api/stock-cache');
       const json = await res.json();
       if (res.ok) setCachedList(json.data || []);
     } catch (e) {
       // ignore
+    } finally {
+      setCachedLoading(false);
     }
   };
 
@@ -317,12 +325,27 @@ export default function StocksPage() {
         .menu-dropdown button { display: block; width: 100%; padding: 10px 12px; text-align: left; background: none; border: none; color: #e6eef8; }
         .menu-dropdown button:hover { background: rgba(255,255,255,0.03); }
         .menu-title { font-weight: 700; color: #fff; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+
+        /* skeleton loader styles merged here to avoid nested styled-jsx tags */
+        .skeleton { position: relative; overflow: hidden; background: linear-gradient(90deg, #111 0%, #161616 40%, #111 100%); }
+        .s-line { height: 12px; background: linear-gradient(90deg, #2b2b2b, #111, #2b2b2b); border-radius: 6px; margin-top: 8px; }
+        .s-line-title { width: 70%; height: 14px; margin-top: 4px; }
+        .s-line-sub { width: 50%; height: 10px; opacity: 0.7; }
+        .skeleton::after { content: ''; position: absolute; left: -150px; top: 0; height: 100%; width: 150px; background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.04) 50%, rgba(255,255,255,0) 100%); animation: shimmer 1.1s linear infinite; }
+        @keyframes shimmer { 100% { transform: translateX(260px); } }
       `}</style>
       <div style={{ display: 'flex' }}>
         <aside style={{ width: 260, position: 'sticky', top: 76, height: 'calc(100vh - 76px)', padding: '12px', background: '#111', overflowY: 'auto' }}>
           <div style={{ color: '#ccc', fontSize: 14, marginBottom: 8 }}>Saved tickers</div>
-          {cachedList.length === 0 && <div style={{ color: '#666' }}>No cached tickers</div>}
-          {cachedList.map((c) => (
+              {cachedList.length === 0 && !cachedLoading && <div style={{ color: '#666' }}>No cached tickers</div>}
+          {cachedLoading ? Array.from({ length: 5 }).map((_, i) => (
+            <div key={`skeleton-${i}`} className="sidebar-row">
+              <div className="sidebar-item skeleton">
+                <div className="s-line s-line-title" />
+                <div className="s-line s-line-sub" />
+              </div>
+            </div>
+          )) : cachedList.map((c) => (
             <div key={c.ticker} className="sidebar-row">
               <div className="sidebar-item" onClick={async () => { setTicker(c.ticker); await fetchHistory(); }}>
                 <div style={{ fontWeight: 700 }}>{c.company_name ? `${c.company_name} (${c.ticker})` : c.ticker}</div>
@@ -339,12 +362,13 @@ export default function StocksPage() {
                 <div className="menu-dropdown" onClick={(e) => e.stopPropagation()}>
                   <div className="menu-title">{c.ticker}</div>
                   <button onClick={async () => { const name = prompt('Enter display name:'); if (name !== null) { await fetch('/api/stock-cache', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticker: c.ticker, display_name: name }) }); await fetchCachedList(); setActiveMenuTicker(null); } }}>Rename</button>
-                  <button onClick={async () => { if (!confirm(`Delete ${c.ticker}?`)) return; await fetch(`/api/stock-cache?ticker=${encodeURIComponent(c.ticker)}`, { method: 'DELETE' }); await fetchCachedList(); setActiveMenuTicker(null); }}>Delete</button>
+                  <button onClick={() => { setConfirmTarget({ type: 'ticker', ticker: c.ticker }); setConfirmOpen(true); setActiveMenuTicker(null); }}>Delete</button>
                 </div>
               )}
             </div>
           ))}
         </aside>
+        {/* skeleton styles moved to the top style block to avoid nested styled-jsx */}
         <div style={{ padding: 24, marginLeft: 50, flex: 1 }}>
           <h1>Stock History</h1>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -511,6 +535,35 @@ export default function StocksPage() {
         </div>
       </div>
     </AuthGate>
+    <ConfirmModal
+      open={confirmOpen}
+      title={confirmTarget && confirmTarget.type === 'ticker' ? `Delete ${confirmTarget.ticker}?` : 'Confirm Delete'}
+      message={confirmTarget && confirmTarget.type === 'ticker' ? `This will remove ${confirmTarget.ticker} from your cached tickers.` : ''}
+      confirmText="Delete"
+      cancelText="Cancel"
+      onCancel={() => { setConfirmOpen(false); setConfirmTarget(null); }}
+      onConfirm={async () => {
+        if (confirmTarget && confirmTarget.type === 'ticker') {
+          try {
+            const res = await fetch(`/api/stock-cache?ticker=${encodeURIComponent(confirmTarget.ticker)}`, { method: 'DELETE' });
+            if (!res.ok) throw new Error('Delete failed');
+            await fetchCachedList();
+            setToastMsg(`Deleted ${confirmTarget.ticker}`);
+          } catch (e) {
+            console.warn('Failed to delete cached ticker', e);
+            setToastMsg(`Failed to delete ${confirmTarget.ticker}`);
+          }
+        }
+        setConfirmOpen(false);
+        setConfirmTarget(null);
+        setTimeout(() => setToastMsg(''), 2500);
+      }}
+    />
+    {toastMsg && (
+      <div style={{ position: 'fixed', bottom: 24, right: 24, background: '#222', color: '#fff', padding: '10px 14px', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.5)', zIndex: 2000 }}>
+        {toastMsg}
+      </div>
+    )}
     </ErrorBoundary>
   );
 }
