@@ -13,7 +13,7 @@ export const config = {
 };
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const embedder = genAI.getGenerativeModel({ model: "embedding-001" });
+const embedder = genAI.getGenerativeModel({ model: "gemini-embedding-001" });
 
 const getEmbedding = async (text) => {
   const result = await embedder.embedContent({
@@ -103,13 +103,13 @@ export default async function handler(req, res) {
     const db = getDb();
     if (!db) throw new Error('Firebase not configured');
 
-    // Write chunks in batches of 500 (Firestore limit per batch)
-    for (let i = 0; i < embeddedChunks.length; i += 500) {
-      const batch = db.batch();
-      embeddedChunks.slice(i, i + 500).forEach(chunk => {
-        batch.set(db.collection('book_chunks').doc(chunk.id), chunk);
-      });
-      await batch.commit();
+    // Write chunks individually in parallel groups of 10 (batch writes exceed gRPC limits with 3072-dim vectors)
+    for (let i = 0; i < embeddedChunks.length; i += 10) {
+      await Promise.all(
+        embeddedChunks.slice(i, i + 10).map(chunk =>
+          db.collection('book_chunks').doc(chunk.id).set(chunk)
+        )
+      );
     }
 
     res.status(200).json({ message: "Book added", chunks: embeddedChunks.length });

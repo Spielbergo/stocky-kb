@@ -12,7 +12,7 @@ export default async function handler(req) {
   const { platform, userPrompt, sourceOption, messages } = await req.json();
 
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
   let systemPrompt;
   if (!messages || messages.length <= 1) {

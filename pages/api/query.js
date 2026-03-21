@@ -3,7 +3,7 @@ import { cosineSimilarity } from "../../lib/math";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const embedder = genAI.getGenerativeModel({ model: "embedding-001" });
+const embedder = genAI.getGenerativeModel({ model: "gemini-embedding-001" });
 
 export default async function handler(req, res) {
   const { userPrompt, platform, sourceOption, stockContext, geminiModel } = req.body;

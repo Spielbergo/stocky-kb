@@ -791,9 +791,9 @@ export default function Home() {
                     className="custom-select"
                   >
                     <optgroup label="Gemini 3">
-                      <option value="gemini-3.1-pro">Gemini 3.1 Pro</option>
-                      <option value="gemini-3.0-flash">Gemini 3 Flash</option>
-                      <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option>
+                      <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro</option>
+                      <option value="gemini-3-flash-preview">Gemini 3 Flash</option>
+                      <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash-Lite</option>
                     </optgroup>
                     <optgroup label="Gemini 2.5">
                       <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
