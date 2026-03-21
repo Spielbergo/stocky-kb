@@ -1,27 +1,33 @@
-import { getSupabaseClient } from '../../lib/supabase';
+import { getDb } from '../../lib/firebase';
 
 export default async function handler(req, res) {
-  const supabase = getSupabaseClient();
-  if (!supabase) return res.status(500).json({ error: 'Supabase not configured' });
+  const db = getDb();
+  if (!db) return res.status(500).json({ error: 'Firebase not configured' });
+
+  const collection = db.collection('stock_history');
 
   if (req.method === 'GET') {
     try {
-      const { data, error } = await supabase
-        .from('stock_history')
-        .select('ticker, start_date, end_date, updated_at, data')
-        .order('updated_at', { ascending: false });
-      if (error) throw error;
+      const snapshot = await collection.orderBy('updated_at', 'desc').get();
+      const data = snapshot.docs.map((doc) => ({
+        ticker:     doc.id,
+        start_date: doc.data().start_date ?? null,
+        end_date:   doc.data().end_date   ?? null,
+        updated_at: doc.data().updated_at ?? null,
+        data:       doc.data().data       ?? null,
+      }));
+
       // Optionally enrich with company name from Finnhub if available
       const fhKey = process.env.FINNHUB_API_KEY;
-      if (fhKey && Array.isArray(data) && data.length > 0) {
+      if (fhKey && data.length > 0) {
         const enriched = await Promise.all(data.map(async (row) => {
           try {
             const url = `https://finnhub.io/api/v1/stock/profile2?symbol=${encodeURIComponent(row.ticker)}&token=${encodeURIComponent(fhKey)}`;
             const r = await fetch(url);
             if (!r.ok) return { ...row, company_name: null };
             const j = await r.json();
-            return { ...row, company_name: j.name || (row.data && row.data.companyName) || null };
-          } catch (e) {
+            return { ...row, company_name: j.name || null };
+          } catch {
             return { ...row, company_name: null };
           }
         }));
@@ -36,15 +42,14 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    // Upsert a display name (store in notes) for a ticker
+    // Upsert a display name (stored in notes field) for a ticker
     try {
       const { ticker, display_name } = req.body || {};
       if (!ticker) return res.status(400).json({ error: 'Missing ticker' });
-
-      // upsert notes column
-      const payload = { ticker: ticker.toUpperCase(), notes: display_name || null };
-      const { error } = await supabase.from('stock_history').upsert([payload], { onConflict: ['ticker'] });
-      if (error) throw error;
+      await collection.doc(ticker.toUpperCase()).set(
+        { notes: display_name || null },
+        { merge: true }
+      );
       return res.status(200).json({ ok: true });
     } catch (e) {
       console.error('stock-cache POST error', e);
@@ -56,8 +61,7 @@ export default async function handler(req, res) {
     try {
       const ticker = req.query.ticker || req.body?.ticker;
       if (!ticker) return res.status(400).json({ error: 'Missing ticker' });
-      const { error } = await supabase.from('stock_history').delete().eq('ticker', ticker.toUpperCase());
-      if (error) throw error;
+      await collection.doc(ticker.toUpperCase()).delete();
       return res.status(200).json({ ok: true });
     } catch (e) {
       console.error('stock-cache DELETE error', e);

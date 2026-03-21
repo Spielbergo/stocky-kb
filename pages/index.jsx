@@ -3,7 +3,7 @@ import { marked } from "marked";
 import AuthGate from "../components/AuthGate";
 import NavBar from "../components/NavBar";
 import ConfirmModal from '../components/ConfirmModal';
-import { FiLayers, FiDatabase } from "react-icons/fi";
+import { FiLayers, FiDatabase, FiCpu } from "react-icons/fi";
 import { FiCopy, FiEdit2 } from "react-icons/fi";
 
 import books from '../data/books.json'; // adjust path as needed
@@ -13,6 +13,7 @@ export default function Home() {
   const [platform, setPlatform] = useState("Opportunity Type");
   const [userPrompt, setUserPrompt] = useState("");
   const [sourceOption, setSourceOption] = useState("mydata");
+  const [geminiModel, setGeminiModel] = useState("gemini-2.5-flash");
   const [loading, setLoading] = useState(false);
   const [wordCount, setWordCount] = useState(0);
   const [showToast, setShowToast] = useState(false);
@@ -167,6 +168,7 @@ export default function Home() {
         sourceOption,
         messages,
         stockContext,
+        geminiModel,
       }),
     });
 
@@ -203,6 +205,7 @@ export default function Home() {
         userPrompt: newPrompt,
         sourceOption,
         messages,
+        geminiModel,
       }),
     });
 
@@ -768,16 +771,35 @@ export default function Home() {
                     <option>Custom Analysis</option>
                   </select>
                 </div>
-                <div className="custom-select-wrapper" style={{ left: -83 }}>
+                <div className="custom-select-wrapper" style={{ left: -42 }}>
                   <FiDatabase className="select-icon" />
                   <select
                     value={sourceOption}
                     onChange={(e) => setSourceOption(e.target.value)}
                     className="custom-select"
                   >
-                    <option value="mydata">Use Only My Data (books & stock history)</option>
+                    <option value="mydata">Use Only My Data</option>
                     <option value="combined">Use My Data + Model Help</option>
                     <option value="model">Use Only Model Knowledge</option>
+                  </select>
+                </div>
+                <div className="custom-select-wrapper" style={{ left: -138 }}>
+                  <FiCpu className="select-icon" />
+                  <select
+                    value={geminiModel}
+                    onChange={(e) => setGeminiModel(e.target.value)}
+                    className="custom-select"
+                  >
+                    <optgroup label="Gemini 3">
+                      <option value="gemini-3.1-pro">Gemini 3.1 Pro</option>
+                      <option value="gemini-3.0-flash">Gemini 3 Flash</option>
+                      <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option>
+                    </optgroup>
+                    <optgroup label="Gemini 2.5">
+                      <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                      <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                      <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite</option>
+                    </optgroup>
                   </select>
                 </div>
               </div>

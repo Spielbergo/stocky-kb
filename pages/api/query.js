@@ -1,5 +1,4 @@
-import fs from "fs";
-import path from "path";
+import { getDb } from "../../lib/firebase";
 import { cosineSimilarity } from "../../lib/math";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
@@ -7,13 +6,14 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const embedder = genAI.getGenerativeModel({ model: "embedding-001" });
 
 export default async function handler(req, res) {
-  const { userPrompt, platform, sourceOption, stockContext } = req.body;
+  const { userPrompt, platform, sourceOption, stockContext, geminiModel } = req.body;
 
   let context = "";
+  const db = getDb();
 
 if (sourceOption === "mydata") {
-  const chunksPath = path.join(process.cwd(), "data", "books.json");
-  const chunks = JSON.parse(fs.readFileSync(chunksPath, "utf8"));
+  const snapshot = await db.collection('book_chunks').get();
+  const chunks = snapshot.docs.map(doc => doc.data());
 
   const result = await embedder.embedContent({
     content: { parts: [{ text: userPrompt }] },
@@ -36,8 +36,8 @@ if (sourceOption === "mydata") {
     context = ""; // No user data, rely fully on the model
   } else {
   // Combine both
-  const chunksPath = path.join(process.cwd(), "data", "books.json");
-  const chunks = JSON.parse(fs.readFileSync(chunksPath, "utf8"));
+  const snapshot = await db.collection('book_chunks').get();
+  const chunks = snapshot.docs.map(doc => doc.data());
 
   const result = await embedder.embedContent({
       content: { parts: [{ text: userPrompt }] },
@@ -73,7 +73,7 @@ if (sourceOption === "mydata") {
       fullPrompt += `\n\nStock historical data summary:\n${stockContext}`;
     }
 
-  const model = genAI.getGenerativeModel({ model: "models/gemini-2.0-flash" });
+  const model = genAI.getGenerativeModel({ model: geminiModel || "gemini-2.5-flash" });
 
   try {
     const response = await model.generateContent(fullPrompt);

@@ -6,6 +6,7 @@ import { IncomingForm } from "formidable";
 import pdfParse from "pdf-parse";
 import { setProgress, clearProgress } from "./progressStore";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { getDb } from "../../lib/firebase";
 
 export const config = {
   api: { bodyParser: false },
@@ -99,13 +100,17 @@ export default async function handler(req, res) {
 
     console.log(`📚 Total chunks: ${chunks.length}, Embedded successfully: ${embeddedChunks.length}`);
 
-    const dataPath = path.resolve("./data/books.json");
-    const existing = fs.existsSync(dataPath)
-      ? JSON.parse(fs.readFileSync(dataPath, "utf8"))
-      : [];
+    const db = getDb();
+    if (!db) throw new Error('Firebase not configured');
 
-    const updated = [...existing, ...embeddedChunks];
-    fs.writeFileSync(dataPath, JSON.stringify(updated, null, 2));
+    // Write chunks in batches of 500 (Firestore limit per batch)
+    for (let i = 0; i < embeddedChunks.length; i += 500) {
+      const batch = db.batch();
+      embeddedChunks.slice(i, i + 500).forEach(chunk => {
+        batch.set(db.collection('book_chunks').doc(chunk.id), chunk);
+      });
+      await batch.commit();
+    }
 
     res.status(200).json({ message: "Book added", chunks: embeddedChunks.length });
   } catch (err) {

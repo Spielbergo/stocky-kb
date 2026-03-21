@@ -1,25 +1,20 @@
-import { getSupabaseClient } from '../../lib/supabase';
+import { getDb } from '../../lib/firebase';
 
 export default async function handler(req, res) {
   try {
-    const supabase = getSupabaseClient();
+    const db = getDb();
 
-    if (!supabase) {
-      return res.status(200).json({ summary: 'No Supabase configured.' });
+    if (!db) {
+      return res.status(200).json({ summary: 'No Firebase configured.' });
     }
 
-    // Fetch distinct tickers and their latest cached data
-    const { data: rows, error } = await supabase
-      .from('stock_history')
-      .select('ticker, data, updated_at')
-      .order('updated_at', { ascending: false });
+    // Fetch all tickers and their latest cached data
+    const snapshot = await db.collection('stock_history').get();
+    const rows = snapshot.docs
+      .map(doc => doc.data())
+      .sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
 
-    if (error) {
-      console.warn('stock-summary supabase error', error.message || error);
-      return res.status(500).json({ error: error.message || 'Supabase error' });
-    }
-
-    if (!rows || rows.length === 0) {
+    if (rows.length === 0) {
       return res.status(200).json({ summary: 'No cached stock history available.' });
     }
 

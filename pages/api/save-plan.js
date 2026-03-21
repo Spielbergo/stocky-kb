@@ -1,18 +1,11 @@
-// --- save-plan.js: Saves a new marketing plan (POST) ---
-import fs from "fs";
-import path from "path";
+import { getDb } from '../../lib/firebase';
 
-export default function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).end();
-
-  const dataPath = path.resolve("./data/plans.json");
-  const plans = fs.existsSync(dataPath)
-    ? JSON.parse(fs.readFileSync(dataPath, "utf8"))
-    : [];
-
-  const newPlan = { id: Date.now(), ...req.body };
-  plans.push(newPlan);
-
-  fs.writeFileSync(dataPath, JSON.stringify(plans, null, 2));
-  res.status(200).json({ message: "Plan saved" });
+export default async function handler(req, res) {
+  if (req.method !== 'POST') return res.status(405).end();
+  const db = getDb();
+  if (!db) return res.status(500).json({ error: 'Firebase not configured' });
+  const id = Date.now();
+  const newPlan = { id, ...req.body };
+  await db.collection('plans').doc(String(id)).set(newPlan);
+  res.status(200).json({ message: 'Plan saved' });
 }

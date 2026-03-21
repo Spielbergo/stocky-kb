@@ -1,11 +1,9 @@
-// --- plans.js: Returns all saved marketing plans ---
-import fs from "fs";
-import path from "path";
+import { getDb } from '../../lib/firebase';
 
-export default function handler(req, res) {
-  const dataPath = path.resolve("./data/plans.json");
-  const plans = fs.existsSync(dataPath)
-    ? JSON.parse(fs.readFileSync(dataPath, "utf8"))
-    : [];
+export default async function handler(req, res) {
+  const db = getDb();
+  if (!db) return res.status(500).json({ error: 'Firebase not configured' });
+  const snapshot = await db.collection('plans').get();
+  const plans = snapshot.docs.map(doc => doc.data()).sort((a, b) => b.id - a.id);
   res.status(200).json(plans);
 }
