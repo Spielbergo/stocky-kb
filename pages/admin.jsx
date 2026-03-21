@@ -21,11 +21,11 @@ export default function AdminDashboard() {
   useEffect(() => {
     fetch("/api/books")
       .then((res) => res.json())
-      .then(setBooks)
+      .then((data) => setBooks(Array.isArray(data) ? data : []))
       .catch(() => setBooks([]));
     fetch("/api/plans")
       .then((res) => res.json())
-      .then(setPlans)
+      .then((data) => setPlans(Array.isArray(data) ? data : []))
       .catch(() => setPlans([]));
   }, [status]); // refetch after upload
 

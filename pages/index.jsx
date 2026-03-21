@@ -783,7 +783,7 @@ export default function Home() {
                     <option value="model">Use Only Model Knowledge</option>
                   </select>
                 </div>
-                <div className="custom-select-wrapper" style={{ left: -138 }}>
+                <div className="custom-select-wrapper" style={{ left: -89 }}>
                   <FiCpu className="select-icon" />
                   <select
                     value={geminiModel}
