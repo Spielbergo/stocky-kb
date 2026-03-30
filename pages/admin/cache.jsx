@@ -1,10 +1,18 @@
 import { useEffect, useState } from 'react';
 import AuthGate from '../../components/AuthGate';
 import NavBar from '../../components/NavBar';
+import AppModal from '../../components/ConfirmModal';
 
 export default function CacheAdmin() {
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(false);
+
+  const [modal, setModal] = useState({ open: false });
+  const closeModal = () => setModal({ open: false });
+  const showAlert = (message, title = 'Notice') =>
+    setModal({ open: true, variant: 'alert', title, message });
+  const showConfirm = (message, onConfirm, title = 'Are you sure?') =>
+    setModal({ open: true, variant: 'confirm', title, message, onConfirm });
 
   const fetchList = async () => {
     setLoading(true);
@@ -21,15 +29,21 @@ export default function CacheAdmin() {
 
   useEffect(() => { fetchList(); }, []);
 
-  const handleDelete = async (ticker) => {
-    if (!confirm(`Delete cached ticker ${ticker}?`)) return;
-    try {
-      const res = await fetch(`/api/stock-cache?ticker=${encodeURIComponent(ticker)}`, { method: 'DELETE' });
-      if (res.ok) fetchList();
-      else alert('Delete failed');
-    } catch (e) {
-      alert('Delete failed');
-    }
+  const handleDelete = (ticker) => {
+    showConfirm(
+      `Delete cached data for ${ticker}?`,
+      async () => {
+        closeModal();
+        try {
+          const res = await fetch(`/api/stock-cache?ticker=${encodeURIComponent(ticker)}`, { method: 'DELETE' });
+          if (res.ok) fetchList();
+          else showAlert('Delete failed. Please try again.', 'Error');
+        } catch (e) {
+          showAlert('Delete failed. Please try again.', 'Error');
+        }
+      },
+      `Delete ${ticker}?`
+    );
   };
 
   return (
@@ -66,6 +80,7 @@ export default function CacheAdmin() {
           </table>
         )}
       </div>
+      <AppModal {...modal} onCancel={closeModal} />
     </AuthGate>
   );
 }

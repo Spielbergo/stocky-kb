@@ -78,6 +78,7 @@ export default async function handler(req, res) {
     const mimetype = file.mimetype;
     const bookTitle = fields.bookTitle ? fields.bookTitle[0] : file.originalFilename;
 
+    const profile = (fields.profile ? fields.profile[0] : null) || "stocks";
     const chunks = await readFile(file.filepath, mimetype);
 
     const embeddedChunks = [];
@@ -91,7 +92,8 @@ export default async function handler(req, res) {
         id: randomUUID(),
         text,
         embedding,
-        bookTitle, // <-- Add this line
+        bookTitle,
+        profile,
       });
       setProgress(key, { current: i + 1, total: chunks.length });
     }

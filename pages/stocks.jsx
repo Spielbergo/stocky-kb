@@ -1,569 +1,815 @@
-import { useState, useEffect, useMemo } from 'react';
+﻿import { useState, useRef, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import AuthGate from '../components/AuthGate';
 import NavBar from '../components/NavBar';
 import ErrorBoundary from '../components/ErrorBoundary';
-import ConfirmModal from '../components/ConfirmModal';
-// Load react-chartjs-2 Line component only on the client to avoid SSR issues
+import AppModal from '../components/ConfirmModal';
 const Line = dynamic(() => import('react-chartjs-2').then(mod => mod.Line), { ssr: false });
-
-// Chart.js modules will be registered client-side in a useEffect below.
 
 function formatDate(d) {
   const dt = new Date(d);
   return dt.toISOString().split('T')[0];
 }
-
-// decimals configuration per metric
+function fmtMonthYear(d) {
+  return new Date(d).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}
 function getDecimalsForMetric(metric) {
   if (!metric) return 2;
   const m = metric.toLowerCase();
   if (m === 'volume') return 0;
-  if (m === 'percent' || m.endsWith('%') || m.includes('percent')) return 2;
-  // default for prices
   return 2;
 }
-
 function formatNumber(n, metric) {
   const v = Number(n);
   if (!isFinite(v)) return n;
-  const dp = getDecimalsForMetric(metric);
-  return v.toFixed(dp);
+  return v.toFixed(getDecimalsForMetric(metric));
 }
-
 function formatVolume(v) {
   const n = Number(v);
   if (!isFinite(n)) return v;
+  if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(2) + 'B';
+  if (n >= 1_000_000)     return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000)         return (n / 1_000).toFixed(0) + 'K';
   return Math.round(n).toLocaleString();
 }
+function calcYears(startStr, endStr) {
+  if (!startStr || !endStr) return null;
+  const ms = new Date(endStr) - new Date(startStr);
+  return (ms / (365.25 * 24 * 3600 * 1000)).toFixed(1);
+}
+
+const FETCH_PERIODS = [
+  { value: '1y',  label: '1Y' },
+  { value: '3y',  label: '3Y' },
+  { value: '5y',  label: '5Y' },
+  { value: '10y', label: '10Y' },
+  { value: 'all', label: 'All' },
+  { value: 'custom', label: 'Custom' },
+];
+
+const CHART_RANGES = ['1m','3m','6m','1y','5y','all'];
+const METRICS = [
+  { value: 'close',  label: 'Close' },
+  { value: 'open',   label: 'Open' },
+  { value: 'high',   label: 'High' },
+  { value: 'low',    label: 'Low' },
+  { value: 'volume', label: 'Volume' },
+];
 
 export default function StocksPage() {
-  const [ticker, setTicker] = useState('AAPL');
-  const [loading, setLoading] = useState(false);
-  const [history, setHistory] = useState([]);
-  const [range, setRange] = useState('1y'); // options: 1m, 3m, 6m, 1y, 5y, all
-  const [pageSize, setPageSize] = useState(10);
-  const [page, setPage] = useState(1);
-  const [metric, setMetric] = useState('close'); // close, open, high, low, volume
-  const [aggregateBy, setAggregateBy] = useState('none'); // none, weekly, monthly
-  const [useFullResolution, setUseFullResolution] = useState(false);
-  const [maxPoints, setMaxPoints] = useState(1000);
-  const [sortBy, setSortBy] = useState('date');
-  const [sortDir, setSortDir] = useState('desc'); // 'asc' or 'desc'
-  const [error, setError] = useState(null);
-  const [chartReady, setChartReady] = useState(false);
-  const [chartError, setChartError] = useState(null);
-  const [cachedList, setCachedList] = useState([]);
-  const [query, setQuery] = useState('');
+  // â”€â”€ Ticker / search â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const [ticker, setTicker]           = useState('AAPL');
+  const [query, setQuery]             = useState('');
   const [suggestions, setSuggestions] = useState([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [activeIdx, setActiveIdx] = useState(-1);
-  const [activeMenuTicker, setActiveMenuTicker] = useState(null);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [confirmTarget, setConfirmTarget] = useState(null); // { type: 'ticker', ticker: 'AAPL' }
-  const [toastMsg, setToastMsg] = useState('');
+  const [showSugg, setShowSugg]       = useState(false);
+  const [activeIdx, setActiveIdx]     = useState(-1);
+
+  // â”€â”€ Fetch period â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const [fetchPeriod, setFetchPeriod] = useState('10y');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd,   setCustomEnd]   = useState('');
+
+  // â”€â”€ Data / state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const [loading, setLoading]         = useState(false);
+  const [history, setHistory]         = useState([]);
+  const [stockMeta, setStockMeta]     = useState(null); // { startDate, endDate, cached, updated_at }
+  const [error, setError]             = useState(null);
+  const [cachedList, setCachedList]   = useState([]);
   const [cachedLoading, setCachedLoading] = useState(false);
+  const [activeTicker, setActiveTicker]   = useState(null); // ticker whose data is loaded
 
+  // â”€â”€ Chart display â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const [range, setRange]               = useState('1y');
+  const [metric, setMetric]             = useState('close');
+  const [aggregateBy, setAggregateBy]   = useState('none');
+  const [chartReady, setChartReady]     = useState(false);
+  const [chartError, setChartError]     = useState(null);
+
+  // â”€â”€ Table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const [pageSize, setPageSize] = useState(10);
+  const [page, setPage]         = useState(1);
+  const [sortBy, setSortBy]     = useState('date');
+  const [sortDir, setSortDir]   = useState('desc');
+
+  // â”€â”€ Sidebar menu â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const [activeMenuTicker, setActiveMenuTicker] = useState(null);
+
+  // â”€â”€ Toast â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const [toastMsg, setToastMsg] = useState('');
+  const toast = (msg) => { setToastMsg(msg); setTimeout(() => setToastMsg(''), 2500); };
+
+  // ── CSV Import ────────────────────────────────────────────────────────────────
+  const [importTicker, setImportTicker] = useState('');
+  const [importLoading, setImportLoading] = useState(false);
+  const csvFileRef = useRef(null);
+
+  // â”€â”€ Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const [modal, setModal]               = useState({ open: false });
+  const [modalInputValue, setModalInputValue] = useState('');
+  const modalInputValueRef              = useRef('');
+  const closeModal  = () => { setModal({ open: false }); setModalInputValue(''); };
+  const showAlert   = (message, title = 'Notice') =>
+    setModal({ open: true, variant: 'alert', title, message });
+  const showConfirm = (message, onConfirm, title = 'Are you sure?') =>
+    setModal({ open: true, variant: 'confirm', title, message, onConfirm });
+  const handleRenameTicker = (t) => {
+    modalInputValueRef.current = '';
+    setModalInputValue('');
+    setModal({
+      open: true, variant: 'input', title: `Rename ${t}`,
+      inputPlaceholder: 'Enter display name...',
+      onConfirm: async () => {
+        const name = modalInputValueRef.current.trim();
+        if (!name) return;
+        closeModal();
+        await fetch('/api/stock-cache', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticker: t, display_name: name }),
+        });
+        await fetchCachedList();
+        setActiveMenuTicker(null);
+      },
+    });
+  };
+
+  // â”€â”€ Autocomplete â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
-    if (!query) {
-      setSuggestions([]);
-      setShowSuggestions(false);
-      return;
-    }
-
+    if (!query) { setSuggestions([]); setShowSugg(false); return; }
     const id = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/finnhub-search?q=${encodeURIComponent(query)}`);
+        const res  = await fetch(`/api/finnhub-search?q=${encodeURIComponent(query)}`);
         const json = await res.json();
         const list = (json.result || []).slice(0, 12).map(i => ({ symbol: i.symbol, description: i.description }));
         setSuggestions(list);
-        setShowSuggestions(list.length > 0);
-      } catch (e) {
-        // ignore
-      }
+        setShowSugg(list.length > 0);
+      } catch { /* ignore */ }
     }, 300);
-
     return () => clearTimeout(id);
   }, [query]);
 
-  useEffect(() => {
-    fetchCachedList();
-  }, []);
-
-  useEffect(() => {
-    // debug visibility
-    if (chartReady) console.info('Chart registration complete - chartReady=true');
-    else console.info('Chart not ready yet - chartReady=false');
-  }, [chartReady]);
+  // â”€â”€ Cached list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  useEffect(() => { fetchCachedList(); }, []);
 
   const fetchCachedList = async () => {
     setCachedLoading(true);
     try {
-      const res = await fetch('/api/stock-cache');
+      const res  = await fetch('/api/stock-cache');
       const json = await res.json();
       if (res.ok) setCachedList(json.data || []);
-    } catch (e) {
-      // ignore
-    } finally {
-      setCachedLoading(false);
-    }
+    } catch { /* ignore */ } finally { setCachedLoading(false); }
   };
 
-  const fetchHistory = async () => {
+  // â”€â”€ Fetch history â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const fetchHistory = async (tickerVal, periodVal, force = false) => {
+    const t = tickerVal || ticker;
+    const p = periodVal || fetchPeriod;
+    if (p === 'custom' && (!customStart || !customEnd)) {
+      showAlert('Please set both a start and end date for the custom range.', 'Custom Range Required');
+      return;
+    }
     setError(null);
     setLoading(true);
+    setTicker(t);
     try {
-      const res = await fetch(`/api/stock-history?ticker=${encodeURIComponent(ticker)}`);
+      const params = new URLSearchParams({ ticker: t, period: p });
+      if (p === 'custom') { params.set('startDate', customStart); params.set('endDate', customEnd); }
+      if (force) params.set('force', '1');
+      const res  = await fetch(`/api/stock-history?${params}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to fetch');
       setHistory(data.data || []);
-      // refresh cached list after a successful fetch/upsert
+      setStockMeta({
+        startDate:  data.startDate,
+        endDate:    data.endDate,
+        cached:     data.cached,
+        updated_at: data.updated_at,
+      });
+      setActiveTicker(t);
+      setPage(1);
       await fetchCachedList();
     } catch (e) {
       setError(e.message);
       setHistory([]);
+      setStockMeta(null);
     } finally {
       setLoading(false);
     }
   };
 
+  // ── Download CSV ──────────────────────────────────────────────────────────────
   const downloadCSV = () => {
-    if (!history || history.length === 0) return;
+    if (!history.length) return;
     const header = ['date,open,high,low,close,volume'];
-    const rows = history.map(r => `${formatDate(r.date)},${r.open},${r.high},${r.low},${r.close},${r.volume}`);
-    const csv = header.concat(rows).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
+    const rows   = history.map(r => `${formatDate(r.date)},${r.open},${r.high},${r.low},${r.close},${r.volume}`);
+    const blob   = new Blob([header.concat(rows).join('\n')], { type: 'text/csv' });
+    const a      = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
     a.download = `${ticker}_history.csv`;
     a.click();
-    URL.revokeObjectURL(url);
+    URL.revokeObjectURL(a.href);
   };
 
-  const latest = history && history.length ? history[history.length - 1] : null;
+  // ── Import CSV ────────────────────────────────────────────────────────────────
+  const importCSV = async (file) => {
+    const t = importTicker.trim().toUpperCase() || ticker;
+    if (!t) { showAlert('Enter a ticker symbol before importing.', 'Ticker Required'); return; }
+    if (!file) return;
+    setImportLoading(true);
+    try {
+      const text = await file.text();
+      const res  = await fetch('/api/stock-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticker: t, csv: text }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Import failed');
+      toast(`Imported ${json.imported} rows for ${json.ticker}${json.skipped ? ` (${json.skipped} skipped)` : ''}`);
+      await fetchCachedList();
+      if (csvFileRef.current) csvFileRef.current.value = '';
+    } catch (e) {
+      showAlert(e.message, 'Import Failed');
+    } finally {
+      setImportLoading(false);
+    }
+  };
 
-  // Register Chart.js modules on the client only
+  // â”€â”€ Chart.js registration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     let mounted = true;
     (async () => {
-      console.info('Starting Chart.js dynamic registration...');
       if (!mounted) return;
       try {
-        const ChartJSModule = await import('chart.js');
-        const ChartJS = ChartJSModule.default || ChartJSModule;
-
-        // Resolve named exports from either the module or its default
-        const CategoryScale = ChartJSModule.CategoryScale || (ChartJSModule.default && ChartJSModule.default.CategoryScale);
-        const LinearScale = ChartJSModule.LinearScale || (ChartJSModule.default && ChartJSModule.default.LinearScale);
-        const PointElement = ChartJSModule.PointElement || (ChartJSModule.default && ChartJSModule.default.PointElement);
-        const LineElement = ChartJSModule.LineElement || (ChartJSModule.default && ChartJSModule.default.LineElement);
-        const Tooltip = ChartJSModule.Tooltip || (ChartJSModule.default && ChartJSModule.default.Tooltip);
-        const TimeScale = ChartJSModule.TimeScale || (ChartJSModule.default && ChartJSModule.default.TimeScale);
-        const Legend = ChartJSModule.Legend || (ChartJSModule.default && ChartJSModule.default.Legend);
-
-        // Try to load the date adapter but don't fail registration if adapter load errors; log it.
-        try {
-          await import('chartjs-adapter-date-fns');
-        } catch (adapterErr) {
-          console.warn('chart date adapter load failed', adapterErr);
-        }
-
-        if (ChartJS && ChartJS.register && CategoryScale && LinearScale && PointElement && LineElement && Tooltip && TimeScale && Legend) {
+        const ChartJSModule  = await import('chart.js');
+        const ChartJS        = ChartJSModule.default || ChartJSModule;
+        const CategoryScale  = ChartJSModule.CategoryScale  || ChartJS?.CategoryScale;
+        const LinearScale    = ChartJSModule.LinearScale    || ChartJS?.LinearScale;
+        const PointElement   = ChartJSModule.PointElement   || ChartJS?.PointElement;
+        const LineElement    = ChartJSModule.LineElement    || ChartJS?.LineElement;
+        const Tooltip        = ChartJSModule.Tooltip        || ChartJS?.Tooltip;
+        const TimeScale      = ChartJSModule.TimeScale      || ChartJS?.TimeScale;
+        const Legend         = ChartJSModule.Legend         || ChartJS?.Legend;
+        try { await import('chartjs-adapter-date-fns'); } catch (e) { console.warn('date adapter', e); }
+        if (ChartJS?.register && CategoryScale && LinearScale && PointElement && LineElement && Tooltip && TimeScale && Legend) {
           ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, TimeScale, Legend);
-          setChartReady(true);
-          setChartError(null);
+          if (mounted) { setChartReady(true); setChartError(null); }
         } else {
-          // Fallback: try importing chart.js/auto which auto-registers everything in one go
-          try {
-            const auto = await import('chart.js/auto');
-            // ensure adapter loaded
-            try { await import('chartjs-adapter-date-fns'); } catch (e) { console.warn('adapter load failed in auto fallback', e); }
-            if (auto) {
-              console.info('chart.js/auto loaded as fallback');
-              setChartReady(true);
-              setChartError(null);
-            } else {
-              const msg = 'ChartJS registration skipped, missing modules and auto fallback failed';
-              console.warn(msg, { ChartJS: !!ChartJS, auto: !!auto });
-              setChartError(msg + ' (see console for details)');
-            }
-          } catch (autoErr) {
-            const msg = 'ChartJS registration skipped, missing modules and auto import failed';
-            console.warn(msg, autoErr, { ChartJS: !!ChartJS, CategoryScale: !!CategoryScale, LinearScale: !!LinearScale, PointElement: !!PointElement, LineElement: !!LineElement, Tooltip: !!Tooltip, TimeScale: !!TimeScale, Legend: !!Legend });
-            setChartError(msg + ' (see console for details)');
-          }
+          const auto = await import('chart.js/auto');
+          try { await import('chartjs-adapter-date-fns'); } catch { /* ignore */ }
+          if (auto && mounted) { setChartReady(true); setChartError(null); }
         }
       } catch (e) {
-        // swallow errors during SSR or dynamic load
-        console.warn('chartjs dynamic load failed', e);
-        setChartError(String(e && (e.message || e)) || 'Unknown chart load error');
+        console.warn('chartjs load failed', e);
+        if (mounted) setChartError(String(e?.message || e) || 'Chart load error');
       }
     })();
     return () => { mounted = false; };
   }, []);
 
-  // Convert history into sorted time series (date asc)
+  // â”€â”€ Derived series â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const series = useMemo(() => {
-    if (!history || history.length === 0) return [];
-    // Ensure dates are Date objects
+    if (!history.length) return [];
     return history.map(h => ({ ...h, date: new Date(h.date) })).sort((a, b) => a.date - b.date);
   }, [history]);
 
-  // Apply time range filter
   const filteredSeries = useMemo(() => {
     if (!series.length) return [];
-    const end = new Date();
-    let start = new Date(0);
-    if (range === '1m') { start = new Date(); start.setMonth(start.getMonth() - 1); }
+    const end   = new Date();
+    let   start = new Date(0);
+    if      (range === '1m') { start = new Date(); start.setMonth(start.getMonth() - 1); }
     else if (range === '3m') { start = new Date(); start.setMonth(start.getMonth() - 3); }
     else if (range === '6m') { start = new Date(); start.setMonth(start.getMonth() - 6); }
     else if (range === '1y') { start = new Date(); start.setFullYear(start.getFullYear() - 1); }
     else if (range === '5y') { start = new Date(); start.setFullYear(start.getFullYear() - 5); }
-    else start = new Date(0);
-
     return series.filter(s => s.date >= start && s.date <= end);
   }, [series, range]);
 
-  // Apply aggregation and downsample for chart performance
   const sampled = useMemo(() => {
     let data = filteredSeries.slice();
-
-    // aggregation
     if (aggregateBy === 'weekly' && data.length > 0) {
       const buckets = {};
       data.forEach(d => {
         const dt = new Date(d.date);
-        const week = Math.floor((dt - new Date(dt.getFullYear(),0,1)) / (7 * 24 * 3600 * 1000));
-        const key = `${dt.getFullYear()}-w${week}`;
-        // keep the last point in the bucket
-        if (!buckets[key] || buckets[key].date < d.date) buckets[key] = d;
+        const wk = Math.floor((dt - new Date(dt.getFullYear(),0,1)) / (7*24*3600*1000));
+        const k  = `${dt.getFullYear()}-w${wk}`;
+        if (!buckets[k] || buckets[k].date < d.date) buckets[k] = d;
       });
-      data = Object.values(buckets).sort((a,b)=>a.date-b.date);
+      data = Object.values(buckets).sort((a,b) => a.date - b.date);
     } else if (aggregateBy === 'monthly' && data.length > 0) {
       const buckets = {};
       data.forEach(d => {
         const dt = new Date(d.date);
-        const key = `${dt.getFullYear()}-${dt.getMonth()+1}`;
-        if (!buckets[key] || buckets[key].date < d.date) buckets[key] = d;
+        const k  = `${dt.getFullYear()}-${dt.getMonth()+1}`;
+        if (!buckets[k] || buckets[k].date < d.date) buckets[k] = d;
       });
-      data = Object.values(buckets).sort((a,b)=>a.date-b.date);
+      data = Object.values(buckets).sort((a,b) => a.date - b.date);
     }
-
-    if (useFullResolution) return data;
-
-    if (!maxPoints || maxPoints === 'all') return data;
-    const mp = parseInt(maxPoints, 10) || 1000;
-    const n = data.length;
+    const n  = data.length;
+    const mp = 1000;
     if (n <= mp) return data;
     const step = Math.ceil(n / mp);
     return data.filter((_, i) => i % step === 0);
-  }, [filteredSeries, aggregateBy, useFullResolution, maxPoints]);
+  }, [filteredSeries, aggregateBy]);
 
-  // Sorting for preview table
   const sortedFilteredSeries = useMemo(() => {
     const arr = filteredSeries.slice();
     const dir = sortDir === 'asc' ? 1 : -1;
     arr.sort((a, b) => {
-      let va = a[sortBy];
-      let vb = b[sortBy];
+      let va = a[sortBy], vb = b[sortBy];
       if (sortBy === 'date') { va = new Date(va); vb = new Date(vb); }
-      if (typeof va === 'string' && !isFinite(Number(va))) return 0;
-      const na = Number(va);
-      const nb = Number(vb);
+      const na = Number(va), nb = Number(vb);
       if (isFinite(na) && isFinite(nb)) return (na - nb) * dir;
-      // fallback to string compare
-      if (va < vb) return -1 * dir;
-      if (va > vb) return 1 * dir;
-      return 0;
+      return String(va) < String(vb) ? -dir : dir;
     });
     return arr;
   }, [filteredSeries, sortBy, sortDir]);
 
-  // Chart data
+  // â”€â”€ Stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const stats = useMemo(() => {
+    if (!series.length) return null;
+    const last = series[series.length - 1];
+    const cutoff52 = new Date(); cutoff52.setFullYear(cutoff52.getFullYear() - 1);
+    const w52 = series.filter(s => s.date >= cutoff52);
+    const high52  = w52.length ? Math.max(...w52.map(s => s.high))   : null;
+    const low52   = w52.length ? Math.min(...w52.map(s => s.low))    : null;
+    const vol30   = (() => {
+      const cut = new Date(); cut.setDate(cut.getDate() - 30);
+      const sl  = series.filter(s => s.date >= cut);
+      return sl.length ? Math.round(sl.reduce((a,b) => a + b.volume, 0) / sl.length) : null;
+    })();
+    const years = calcYears(series[0].date.toISOString(), last.date.toISOString());
+    return { last, high52, low52, vol30, years, points: series.length };
+  }, [series]);
+
   const chartData = useMemo(() => ({
     labels: sampled.map(s => s.date),
-    datasets: [
-      {
-        label: `${ticker} ${metric}`,
-        data: sampled.map(s => s[metric]),
-        borderColor: 'rgba(75,192,192,1)',
-        backgroundColor: 'rgba(75,192,192,0.2)',
-        pointRadius: 0,
-        borderWidth: 1.25,
-      },
-    ],
+    datasets: [{
+      label: `${ticker} ${metric}`,
+      data:  sampled.map(s => s[metric]),
+      borderColor:     'var(--accent)',
+      backgroundColor: 'rgba(22,163,74,0.08)',
+      pointRadius: 0,
+      borderWidth: 1.5,
+    }],
   }), [sampled, ticker, metric]);
 
   const chartOptions = useMemo(() => ({
     responsive: true,
     maintainAspectRatio: false,
     scales: {
-      x: { type: 'time', time: { unit: 'day' } },
-      y: { beginAtZero: false },
+      x: { type: 'time', time: { unit: 'day' }, grid: { color: 'rgba(128,128,128,0.1)' }, ticks: { color: 'var(--muted)' } },
+      y: { beginAtZero: false, grid: { color: 'rgba(128,128,128,0.1)' }, ticks: { color: 'var(--muted)' } },
     },
-    plugins: { legend: { display: true } },
+    plugins: { legend: { display: false } },
   }), []);
 
-  // clamp page when data or pageSize changes
+  // clamp page
   useEffect(() => {
-    const totalPages = Math.max(1, Math.ceil(filteredSeries.length / pageSize));
-    if (page > totalPages) setPage(totalPages);
-    if (page < 1) setPage(1);
+    const total = Math.max(1, Math.ceil(filteredSeries.length / pageSize));
+    if (page > total) setPage(total);
   }, [filteredSeries.length, pageSize]);
 
+  // â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   return (
     <ErrorBoundary>
     <AuthGate>
       <NavBar />
-      <style jsx>{`
-        .sidebar-row { position: relative; margin-bottom: 6px; }
-        .sidebar-item { border-radius: 6px; background: #222; cursor: pointer; padding: 8px; }
-        .menu-button { position: absolute; right: -8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #ccc; cursor: pointer; font-size: 18px; opacity: 0; transition: opacity .12s; }
-        .sidebar-row:hover .menu-button { opacity: 1; }
-        .menu-dropdown { position: absolute; right: 8px; top: calc(50% + 18px); background: #0f1720; border: 1px solid #2b2b2b; box-shadow: 0 8px 24px rgba(2,6,23,0.6); z-index: 80; min-width: 160px; border-radius: 8px; overflow: hidden; }
-        .menu-dropdown button { display: block; width: 100%; padding: 10px 12px; text-align: left; background: none; border: none; color: #e6eef8; }
-        .menu-dropdown button:hover { background: rgba(255,255,255,0.03); }
-        .menu-title { font-weight: 700; color: #fff; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+      <div className="admin-layout">
 
-        /* skeleton loader styles merged here to avoid nested styled-jsx tags */
-        .skeleton { position: relative; overflow: hidden; background: linear-gradient(90deg, #111 0%, #161616 40%, #111 100%); }
-        .s-line { height: 12px; background: linear-gradient(90deg, #2b2b2b, #111, #2b2b2b); border-radius: 6px; margin-top: 8px; }
-        .s-line-title { width: 70%; height: 14px; margin-top: 4px; }
-        .s-line-sub { width: 50%; height: 10px; opacity: 0.7; }
-        .skeleton::after { content: ''; position: absolute; left: -150px; top: 0; height: 100%; width: 150px; background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.04) 50%, rgba(255,255,255,0) 100%); animation: shimmer 1.1s linear infinite; }
-        @keyframes shimmer { 100% { transform: translateX(260px); } }
-      `}</style>
-      <div style={{ display: 'flex' }}>
-        <aside style={{ width: 260, position: 'sticky', top: 76, height: 'calc(100vh - 76px)', padding: '12px', background: '#111', overflowY: 'auto' }}>
-          <div style={{ color: '#ccc', fontSize: 14, marginBottom: 8 }}>Saved tickers</div>
-              {cachedList.length === 0 && !cachedLoading && <div style={{ color: '#666' }}>No cached tickers</div>}
-          {cachedLoading ? Array.from({ length: 5 }).map((_, i) => (
-            <div key={`skeleton-${i}`} className="sidebar-row">
-              <div className="sidebar-item skeleton">
-                <div className="s-line s-line-title" />
-                <div className="s-line s-line-sub" />
-              </div>
+        {/* â”€â”€ Sidebar â”€â”€ */}
+        <aside className="admin-sidebar">
+
+          {/* Header badge */}
+          <div className="sidebar-profile-badge">
+            <div className="sidebar-profile-icon">ðŸ“ˆ</div>
+            <div>
+              <div className="sidebar-profile-label">Markets</div>
+              <div className="sidebar-profile-sub">Stock History</div>
             </div>
-          )) : cachedList.map((c) => (
-            <div key={c.ticker} className="sidebar-row">
-              <div className="sidebar-item" onClick={async () => { setTicker(c.ticker); await fetchHistory(); }}>
-                <div style={{ fontWeight: 700 }}>{c.company_name ? `${c.company_name} (${c.ticker})` : c.ticker}</div>
-                <div style={{ fontSize: 12, color: '#999' }}>updated: {c.updated_at ? new Date(c.updated_at).toLocaleString() : c.start_date}</div>
-              </div>
+          </div>
 
-              <button
-                className="menu-button"
-                onClick={(e) => { e.stopPropagation(); setActiveMenuTicker(activeMenuTicker === c.ticker ? null : c.ticker); }}
-                aria-label="options"
-              >⋯</button>
+          {/* Fetch section */}
+          <div className="sidebar-section">
+            <h3 className="sidebar-section-title">Fetch History</h3>
 
-              {activeMenuTicker === c.ticker && (
-                <div className="menu-dropdown" onClick={(e) => e.stopPropagation()}>
-                  <div className="menu-title">{c.ticker}</div>
-                  <button onClick={async () => { const name = prompt('Enter display name:'); if (name !== null) { await fetch('/api/stock-cache', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticker: c.ticker, display_name: name }) }); await fetchCachedList(); setActiveMenuTicker(null); } }}>Rename</button>
-                  <button onClick={() => { setConfirmTarget({ type: 'ticker', ticker: c.ticker }); setConfirmOpen(true); setActiveMenuTicker(null); }}>Delete</button>
+            {/* Ticker search */}
+            <div style={{ position: 'relative', marginBottom: 9 }}>
+              <input
+                className="sidebar-input"
+                style={{ marginBottom: 0 }}
+                placeholder="Ticker symbol..."
+                value={query || ticker}
+                onChange={e => { setQuery(e.target.value); setTicker(e.target.value.toUpperCase()); }}
+                onFocus={() => { if (suggestions.length) setShowSugg(true); }}
+                onBlur={() => setTimeout(() => setShowSugg(false), 150)}
+                onKeyDown={e => {
+                  if (e.key === 'ArrowDown') setActiveIdx(i => Math.min(i+1, suggestions.length-1));
+                  else if (e.key === 'ArrowUp') setActiveIdx(i => Math.max(i-1, 0));
+                  else if (e.key === 'Enter' && activeIdx >= 0 && suggestions[activeIdx]) {
+                    const s = suggestions[activeIdx];
+                    setTicker(s.symbol); setQuery(''); setShowSugg(false); setActiveIdx(-1);
+                  }
+                }}
+              />
+              {showSugg && suggestions.length > 0 && (
+                <div style={{
+                  position: 'absolute', left: 0, top: '100%', width: '100%',
+                  background: 'var(--card-bg)', border: '1px solid var(--card-border)',
+                  borderRadius: 7, zIndex: 50, maxHeight: 220, overflowY: 'auto',
+                  boxShadow: 'var(--shadow)',
+                }}>
+                  {suggestions.map((s, idx) => (
+                    <div
+                      key={s.symbol}
+                      onMouseDown={() => { setTicker(s.symbol); setQuery(''); setShowSugg(false); setActiveIdx(-1); }}
+                      style={{
+                        padding: '7px 10px', cursor: 'pointer',
+                        background: idx === activeIdx ? 'var(--input-bg)' : 'transparent',
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, fontSize: '0.82rem' }}>{s.symbol}</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.description}</div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
-          ))}
-        </aside>
-        {/* skeleton styles moved to the top style block to avoid nested styled-jsx */}
-        <div style={{ padding: 24, marginLeft: 50, flex: 1 }}>
-          <h1>Stock History</h1>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <div style={{ position: 'relative' }}>
-            <input
-              value={query || ticker}
-              onChange={e => { setQuery(e.target.value); setTicker(e.target.value.toUpperCase()); }}
-              onFocus={() => { if (suggestions.length) setShowSuggestions(true); }}
-              onKeyDown={(e) => {
-                if (e.key === 'ArrowDown') { setActiveIdx(i => Math.min(i + 1, suggestions.length - 1)); }
-                else if (e.key === 'ArrowUp') { setActiveIdx(i => Math.max(i - 1, 0)); }
-                else if (e.key === 'Enter') { if (activeIdx >= 0 && suggestions[activeIdx]) { const s = suggestions[activeIdx]; setTicker(s.symbol); setQuery(''); setShowSuggestions(false); } }
-              }}
-            />
-            {showSuggestions && (
-              <div style={{ position: 'absolute', left: 0, top: '100%', background: '#111', border: '1px solid #333', width: 320, maxHeight: 260, overflowY: 'auto', zIndex: 50 }}>
-                {suggestions.map((s, idx) => (
-                  <div key={s.symbol} onMouseDown={() => { setTicker(s.symbol); setQuery(''); setShowSuggestions(false); }}
-                    style={{ padding: 8, background: idx === activeIdx ? '#222' : 'transparent', cursor: 'pointer' }}>
-                    <div style={{ fontWeight: 700 }}>{s.symbol}</div>
-                    <div style={{ fontSize: 12, color: '#999' }}>{s.description}</div>
-                  </div>
-                ))}
+
+            {/* Period selector */}
+            <div className="chart-toolbar-label" style={{ marginBottom: 6 }}>Period to fetch</div>
+            <div className="period-btn-group">
+              {FETCH_PERIODS.map(p => (
+                <button
+                  key={p.value}
+                  className={`period-btn${fetchPeriod === p.value ? ' active' : ''}`}
+                  onClick={() => setFetchPeriod(p.value)}
+                >{p.label}</button>
+              ))}
+            </div>
+
+            {/* Custom date range */}
+            {fetchPeriod === 'custom' && (
+              <div style={{ marginBottom: 6 }}>
+                <div className="chart-toolbar-label" style={{ marginBottom: 4 }}>From</div>
+                <input type="date" className="sidebar-input" value={customStart} onChange={e => setCustomStart(e.target.value)} style={{ marginBottom: 6 }} />
+                <div className="chart-toolbar-label" style={{ marginBottom: 4 }}>To</div>
+                <input type="date" className="sidebar-input" value={customEnd} onChange={e => setCustomEnd(e.target.value)} />
               </div>
             )}
+
+            {/* Fetch + Refresh buttons */}
+            <button
+              className="upload-btn"
+              style={{ marginBottom: 5 }}
+              onClick={() => fetchHistory(ticker, fetchPeriod)}
+              disabled={loading}
+            >
+              {loading ? 'Fetchingâ€¦' : 'Fetch History'}
+            </button>
+            <button
+              className="upload-btn"
+              style={{ background: 'var(--input-bg)', color: 'var(--foreground)', border: '1px solid var(--card-border)' }}
+              onClick={() => fetchHistory(ticker, fetchPeriod, true)}
+              disabled={loading}
+            >
+              Force Refresh
+            </button>
           </div>
-          <button onClick={fetchHistory} disabled={loading}>{loading ? 'Loading...' : 'Fetch'}</button>
-          <button onClick={async () => { setLoading(true); try { const res = await fetch(`/api/stock-history?ticker=${encodeURIComponent(ticker)}&force=1`); const data = await res.json(); if (!res.ok) throw new Error(data.error || 'Failed'); setHistory(data.data || []); await fetchCachedList(); } catch (e) { setError(e.message); } finally { setLoading(false); } }} disabled={loading}>Refresh</button>
-          <button onClick={downloadCSV} disabled={!history || history.length === 0}>Download CSV</button>
-        </div>
 
-        {error && <div style={{ color: 'red', marginTop: 12 }}>{error}</div>}
-
-        {latest && (
-          <div style={{ marginTop: 16 }}>
-            <h3>{ticker} — Latest</h3>
-            <div>Date: {formatDate(latest.date)}</div>
-            <div>Close: {formatNumber(latest.close)}</div>
-            <div>Open: {formatNumber(latest.open)}</div>
-            <div>High: {formatNumber(latest.high)}</div>
-            <div>Low: {formatNumber(latest.low)}</div>
-            <div>Volume: {formatVolume(latest.volume)}</div>
-            <div style={{ marginTop: 12 }}>
-              <strong>Data points:</strong> {history.length}
+          {/* Import CSV section */}
+          <div className="sidebar-section">
+            <h3 className="sidebar-section-title">Import CSV</h3>
+            <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginBottom: 8, lineHeight: 1.4 }}>
+              Upload a CSV with columns: <code style={{ background: 'var(--input-bg)', padding: '1px 4px', borderRadius: 3 }}>date, open, high, low, close, volume</code>
             </div>
+            <input
+              className="sidebar-input"
+              style={{ marginBottom: 6 }}
+              placeholder="Ticker (e.g. AAPL)"
+              value={importTicker}
+              onChange={e => setImportTicker(e.target.value.toUpperCase())}
+            />
+            <label
+              htmlFor="csv-file-input"
+              className="upload-btn"
+              style={{
+                display: 'block', textAlign: 'center', cursor: importLoading ? 'not-allowed' : 'pointer',
+                opacity: importLoading ? 0.6 : 1,
+              }}
+            >
+              {importLoading ? 'Importing…' : '↑ Choose CSV File'}
+            </label>
+            <input
+              id="csv-file-input"
+              ref={csvFileRef}
+              type="file"
+              accept=".csv,text/csv"
+              style={{ display: 'none' }}
+              disabled={importLoading}
+              onChange={e => { const f = e.target.files?.[0]; if (f) importCSV(f); }}
+            />
           </div>
-        )}
 
-        {history && history.length > 0 && (
-          <div style={{ marginTop: 20 }}>
-            <h3>Chart</h3>
-            <div style={{ height: 360, background: '#0b1220', padding: 12, borderRadius: 8 }}>
-              {chartReady ? (
-                <Line data={chartData} options={chartOptions} />
-              ) : chartError ? (
-                <div style={{ color: '#f88', padding: 18 }}>
-                  <div style={{ fontWeight: 700, marginBottom: 8 }}>Chart failed to load</div>
-                  <div style={{ color: '#fbb', marginBottom: 12 }}>{chartError}</div>
-                  <div style={{ color: '#ccc', marginBottom: 12 }}>Open the browser console for details.</div>
-                  <div>
-                    <button onClick={() => window.location.reload()}>Reload page</button>
-                    <button onClick={() => (window.location.href = '/')} style={{ marginLeft: 8 }}>Go Home</button>
+          {/* Cached tickers list */}
+          <div className="sidebar-section sidebar-list-section" style={{ flex: 1 }}>
+            <h3 className="sidebar-section-title">
+              Cached Tickers <span className="count-badge">{cachedList.length}</span>
+            </h3>
+            <ul className="sidebar-list" style={{ maxHeight: 'none' }}>
+              {cachedLoading && (
+                <li className="sidebar-empty">Loadingâ€¦</li>
+              )}
+              {!cachedLoading && cachedList.length === 0 && (
+                <li className="sidebar-empty">No cached tickers yet</li>
+              )}
+              {!cachedLoading && cachedList.map(c => {
+                const yrs = calcYears(c.start_date, c.end_date);
+                const isActive = activeTicker === c.ticker;
+                return (
+                  <li
+                    key={c.ticker}
+                    className={`sidebar-item${isActive ? ' active' : ''}`}
+                    style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2, position: 'relative', paddingRight: 28 }}
+                    onClick={() => fetchHistory(c.ticker, fetchPeriod)}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+                      <span className="sidebar-item-label" style={{ fontWeight: 700 }}>
+                        {c.company_name ? `${c.ticker}` : c.ticker}
+                      </span>
+                      {yrs && <span className="sidebar-item-meta">{yrs}y</span>}
+                    </div>
+                    {c.company_name && (
+                      <div className="stock-cache-meta">{c.company_name}</div>
+                    )}
+                    {c.start_date && c.end_date && (
+                      <div className="stock-cache-meta">
+                        {fmtMonthYear(c.start_date)} â€“ {fmtMonthYear(c.end_date)}
+                      </div>
+                    )}
+
+                    {/* â‹¯ menu */}
+                    <button
+                      style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 16, padding: '2px 4px', lineHeight: 1 }}
+                      onClick={e => { e.stopPropagation(); setActiveMenuTicker(activeMenuTicker === c.ticker ? null : c.ticker); }}
+                      title="Options"
+                    >â‹¯</button>
+                    {activeMenuTicker === c.ticker && (
+                      <div
+                        onClick={e => e.stopPropagation()}
+                        style={{
+                          position: 'absolute', right: 0, top: 'calc(100% + 2px)',
+                          background: 'var(--card-bg)', border: '1px solid var(--card-border)',
+                          borderRadius: 8, boxShadow: 'var(--shadow)', zIndex: 80,
+                          minWidth: 140, overflow: 'hidden',
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, fontSize: '0.78rem', padding: '7px 10px', borderBottom: '1px solid var(--card-border)', color: 'var(--foreground)' }}>{c.ticker}</div>
+                        <button style={{ display: 'block', width: '100%', padding: '8px 10px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--foreground)', cursor: 'pointer', fontSize: '0.8rem' }}
+                          onClick={() => handleRenameTicker(c.ticker)}>Rename</button>
+                        <button style={{ display: 'block', width: '100%', padding: '8px 10px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: '0.8rem' }}
+                          onClick={() => {
+                            setActiveMenuTicker(null);
+                            showConfirm(
+                              `This will remove ${c.ticker} and all its cached data.`,
+                              async () => {
+                                closeModal();
+                                try {
+                                  const res = await fetch(`/api/stock-cache?ticker=${encodeURIComponent(c.ticker)}`, { method: 'DELETE' });
+                                  if (!res.ok) throw new Error('Delete failed');
+                                  if (activeTicker === c.ticker) { setHistory([]); setStockMeta(null); setActiveTicker(null); }
+                                  await fetchCachedList();
+                                  toast(`Deleted ${c.ticker}`);
+                                } catch (e) {
+                                  toast(`Failed to delete ${c.ticker}`);
+                                }
+                              },
+                              `Delete ${c.ticker}?`
+                            );
+                          }}>Delete</button>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+
+        </aside>
+
+        {/* â”€â”€ Main â”€â”€ */}
+        <main className="admin-main">
+
+          {error && <div className="error-banner">{error}</div>}
+
+          {/* Stats card */}
+          {stats && (
+            <>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 4 }}>
+                <h2 style={{ margin: 0 }}>{activeTicker}</h2>
+                {stockMeta?.cached && <span className="cached-badge">Cached</span>}
+                {stockMeta && !stockMeta.cached && <span style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>fresh from Yahoo</span>}
+              </div>
+              {stockMeta?.updated_at && (
+                <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginBottom: 14 }}>
+                  Last updated: {new Date(stockMeta.updated_at).toLocaleString()}
+                </div>
+              )}
+
+              <div className="stock-stat-grid">
+                <div className="stock-stat-item">
+                  <div className="stock-stat-label">History</div>
+                  <div className="stock-stat-value">{stats.years} yrs</div>
+                  <div className="stock-stat-sub">{stats.points.toLocaleString()} trading days</div>
+                </div>
+                <div className="stock-stat-item">
+                  <div className="stock-stat-label">Date Range</div>
+                  <div className="stock-stat-value" style={{ fontSize: '0.85rem' }}>{fmtMonthYear(series[0]?.date)}</div>
+                  <div className="stock-stat-sub">to {fmtMonthYear(stats.last.date)}</div>
+                </div>
+                <div className="stock-stat-item">
+                  <div className="stock-stat-label">Last Close</div>
+                  <div className="stock-stat-value">${formatNumber(stats.last.close)}</div>
+                  <div className="stock-stat-sub">{formatDate(stats.last.date)}</div>
+                </div>
+                <div className="stock-stat-item">
+                  <div className="stock-stat-label">Last Open</div>
+                  <div className="stock-stat-value">${formatNumber(stats.last.open)}</div>
+                  <div className="stock-stat-sub">Hi ${formatNumber(stats.last.high)} Â· Lo ${formatNumber(stats.last.low)}</div>
+                </div>
+                {stats.high52 && (
+                  <div className="stock-stat-item">
+                    <div className="stock-stat-label">52-Week High</div>
+                    <div className="stock-stat-value">${formatNumber(stats.high52)}</div>
+                  </div>
+                )}
+                {stats.low52 && (
+                  <div className="stock-stat-item">
+                    <div className="stock-stat-label">52-Week Low</div>
+                    <div className="stock-stat-value">${formatNumber(stats.low52)}</div>
+                  </div>
+                )}
+                {stats.vol30 && (
+                  <div className="stock-stat-item">
+                    <div className="stock-stat-label">Avg Volume 30d</div>
+                    <div className="stock-stat-value">{formatVolume(stats.vol30)}</div>
+                  </div>
+                )}
+                <div className="stock-stat-item">
+                  <div className="stock-stat-label">Last Volume</div>
+                  <div className="stock-stat-value">{formatVolume(stats.last.volume)}</div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {!history.length && !loading && !error && (
+            <div className="admin-empty-state">
+              <span>ðŸ“Š</span>
+              <p>Select a ticker and period, then click Fetch History</p>
+            </div>
+          )}
+
+          {loading && (
+            <div className="admin-empty-state">
+              <span style={{ fontSize: '1.5rem' }}>â³</span>
+              <p>Fetching dataâ€¦ large ranges are split into chunks with pauses to avoid rate limits. This may take up to 30 seconds.</p>
+            </div>
+          )}
+
+          {/* Chart */}
+          {history.length > 0 && !loading && (
+            <>
+              <div style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 12, padding: '16px 20px', marginBottom: 24 }}>
+                <div style={{ height: 340 }}>
+                  {chartReady ? (
+                    <Line data={chartData} options={chartOptions} />
+                  ) : chartError ? (
+                    <div style={{ color: 'var(--danger)', padding: 16 }}>
+                      <div style={{ fontWeight: 700, marginBottom: 6 }}>Chart failed to load</div>
+                      <div style={{ fontSize: '0.82rem' }}>{chartError}</div>
+                    </div>
+                  ) : (
+                    <div style={{ color: 'var(--muted)', padding: 24 }}>Loading chartâ€¦</div>
+                  )}
+                </div>
+
+                {/* Chart toolbar */}
+                <div className="chart-toolbar">
+                  <div className="chart-toolbar-group">
+                    <span className="chart-toolbar-label">Range</span>
+                    <div className="period-btn-group" style={{ marginBottom: 0 }}>
+                      {CHART_RANGES.map(r => (
+                        <button key={r} className={`period-btn${range === r ? ' active' : ''}`} onClick={() => { setRange(r); setPage(1); }}>
+                          {r.toUpperCase()}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="chart-toolbar-group">
+                    <span className="chart-toolbar-label">Metric</span>
+                    <div className="period-btn-group" style={{ marginBottom: 0 }}>
+                      {METRICS.map(m => (
+                        <button key={m.value} className={`period-btn${metric === m.value ? ' active' : ''}`} onClick={() => setMetric(m.value)}>
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="chart-toolbar-group">
+                    <span className="chart-toolbar-label">Aggregate</span>
+                    <div className="period-btn-group" style={{ marginBottom: 0 }}>
+                      {['none','weekly','monthly'].map(a => (
+                        <button key={a} className={`period-btn${aggregateBy === a ? ' active' : ''}`} onClick={() => setAggregateBy(a)}>
+                          {a === 'none' ? 'Daily' : a.charAt(0).toUpperCase() + a.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <button
+                    onClick={downloadCSV}
+                    className="period-btn"
+                    title="Download filtered data as CSV"
+                  >â¬‡ CSV</button>
+                </div>
+              </div>
+
+              {/* Data table */}
+              <div style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 12, padding: '16px 20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700 }}>
+                    Data Preview <span className="count-badge">{filteredSeries.length} pts</span>
+                  </h3>
+                  <div className="chart-toolbar-group">
+                    <span className="chart-toolbar-label">Rows</span>
+                    <select
+                      className="sidebar-input"
+                      style={{ width: 'auto', marginBottom: 0, padding: '4px 8px' }}
+                      value={pageSize}
+                      onChange={e => { setPageSize(+e.target.value); setPage(1); }}
+                    >
+                      {[10,25,50,100].map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
                   </div>
                 </div>
-              ) : (
-                <div style={{ color: '#999', padding: 24 }}>Loading chart...</div>
-              )}
-            </div>
 
-            <div style={{ marginTop: 12, display: 'flex', gap: 12, alignItems: 'center' }}>
-              <div title="Choose time window to display on chart">
-                <label>Range: </label>
-                <select value={range} onChange={e => { setRange(e.target.value); setPage(1); }} title="Choose time window to display on chart">
-                  <option value="1m">1M</option>
-                  <option value="3m">3M</option>
-                  <option value="6m">6M</option>
-                  <option value="1y">1Y</option>
-                  <option value="5y">5Y</option>
-                  <option value="all">All</option>
-                </select>
-              </div>
-
-              <div title="Metric shown on the chart">
-                <label>Metric: </label>
-                <select value={metric} onChange={e => setMetric(e.target.value)} title="Metric shown on the chart">
-                  <option value="close">Close</option>
-                  <option value="open">Open</option>
-                  <option value="high">High</option>
-                  <option value="low">Low</option>
-                  <option value="volume">Volume</option>
-                </select>
-              </div>
-
-              <div title="Aggregate data into weekly or monthly buckets to reduce noise">
-                <label>Aggregate: </label>
-                <select value={aggregateBy} onChange={e => setAggregateBy(e.target.value)} title="Aggregate data into weekly or monthly buckets to reduce noise">
-                  <option value="none">None</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="monthly">Monthly</option>
-                </select>
-              </div>
-
-              <div title="When checked, chart will try to show full resolution (may be slow)">
-                <label>Full res: </label>
-                <input type="checkbox" checked={useFullResolution} onChange={e => setUseFullResolution(e.target.checked)} title="When checked, chart will try to show full resolution (may be slow)" />
-              </div>
-
-              <div title="Maximum number of points to keep for the chart when not using full resolution">
-                <label>Max points: </label>
-                <input type="number" value={maxPoints} onChange={e => setMaxPoints(e.target.value)} style={{ width: 80 }} title="Maximum number of points to keep for the chart when not using full resolution" />
-              </div>
-
-              <div>
-                <label>Items per page: </label>
-                <select value={pageSize} onChange={e => { setPageSize(parseInt(e.target.value, 10)); setPage(1); }}>
-                  <option value={5}>5</option>
-                  <option value={10}>10</option>
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                </select>
-              </div>
-            </div>
-
-            <h3 style={{ marginTop: 18 }}>Preview</h3>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  <th style={{ borderBottom: '1px solid #ccc', textAlign: 'left', cursor: 'pointer' }} onClick={() => { setSortBy('date'); setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }}>Date {sortBy === 'date' ? (sortDir === 'asc' ? '▲' : '▼') : ''}</th>
-                  <th style={{ borderBottom: '1px solid #ccc', textAlign: 'center', cursor: 'pointer' }} onClick={() => { setSortBy('open'); setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }}>Open {sortBy === 'open' ? (sortDir === 'asc' ? '▲' : '▼') : ''}</th>
-                  <th style={{ borderBottom: '1px solid #ccc', textAlign: 'center', cursor: 'pointer' }} onClick={() => { setSortBy('high'); setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }}>High {sortBy === 'high' ? (sortDir === 'asc' ? '▲' : '▼') : ''}</th>
-                  <th style={{ borderBottom: '1px solid #ccc', textAlign: 'center', cursor: 'pointer' }} onClick={() => { setSortBy('low'); setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }}>Low {sortBy === 'low' ? (sortDir === 'asc' ? '▲' : '▼') : ''}</th>
-                  <th style={{ borderBottom: '1px solid #ccc', textAlign: 'center', cursor: 'pointer' }} onClick={() => { setSortBy('close'); setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }}>Close {sortBy === 'close' ? (sortDir === 'asc' ? '▲' : '▼') : ''}</th>
-                  <th style={{ borderBottom: '1px solid #ccc', textAlign: 'center', cursor: 'pointer' }} onClick={() => { setSortBy('volume'); setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }}>Volume {sortBy === 'volume' ? (sortDir === 'asc' ? '▲' : '▼') : ''}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(() => {
-                  const total = sortedFilteredSeries.length;
-                  const start = Math.max(0, total - (page * pageSize));
-                  const end = Math.max(0, total - ((page - 1) * pageSize));
-                  const pageItems = sortedFilteredSeries.slice(start, end).reverse();
-                  return pageItems.map((r, i) => (
-                    <tr key={i}>
-                      <td style={{ padding: '6px 8px', textAlign: 'left' }}>{formatDate(r.date)}</td>
-                      <td style={{ padding: '6px 8px', textAlign: 'center' }}>{formatNumber(r.open, 'price')}</td>
-                      <td style={{ padding: '6px 8px', textAlign: 'center' }}>{formatNumber(r.high, 'price')}</td>
-                      <td style={{ padding: '6px 8px', textAlign: 'center' }}>{formatNumber(r.low, 'price')}</td>
-                      <td style={{ padding: '6px 8px', textAlign: 'center' }}>{formatNumber(r.close, 'price')}</td>
-                      <td style={{ padding: '6px 8px', textAlign: 'center' }}>{formatVolume(r.volume)}</td>
+                <table className="stocks-table">
+                  <thead>
+                    <tr>
+                      {[['date','Date'],['open','Open'],['high','High'],['low','Low'],['close','Close'],['volume','Volume']].map(([k, lbl]) => (
+                        <th key={k} onClick={() => { setSortBy(k); setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }}>
+                          {lbl} {sortBy === k ? (sortDir === 'asc' ? 'â–²' : 'â–¼') : ''}
+                        </th>
+                      ))}
                     </tr>
-                  ));
-                })()}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const total = sortedFilteredSeries.length;
+                      const start = Math.max(0, total - (page * pageSize));
+                      const end   = Math.max(0, total - ((page-1) * pageSize));
+                      return sortedFilteredSeries.slice(start, end).reverse().map((r, i) => (
+                        <tr key={i}>
+                          <td>{formatDate(r.date)}</td>
+                          <td>${formatNumber(r.open)}</td>
+                          <td>${formatNumber(r.high)}</td>
+                          <td>${formatNumber(r.low)}</td>
+                          <td>${formatNumber(r.close)}</td>
+                          <td>{formatVolume(r.volume)}</td>
+                        </tr>
+                      ));
+                    })()}
+                  </tbody>
+                </table>
 
-            <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>Prev</button>
-              <div>Page {page} / {Math.max(1, Math.ceil(filteredSeries.length / pageSize))}</div>
-              <button onClick={() => setPage(p => Math.min(Math.max(1, Math.ceil(filteredSeries.length / pageSize)), p + 1))} disabled={(page * pageSize) >= filteredSeries.length}>Next</button>
-              <div style={{ marginLeft: 12, color: '#999' }}>{filteredSeries.length} points</div>
-            </div>
-          </div>
-        )}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12 }}>
+                  <button className="period-btn" onClick={() => setPage(p => Math.max(1, p-1))} disabled={page === 1}>â€¹ Prev</button>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Page {page} / {Math.max(1, Math.ceil(filteredSeries.length / pageSize))}</span>
+                  <button className="period-btn" onClick={() => setPage(p => Math.min(Math.ceil(filteredSeries.length / pageSize), p+1))} disabled={page * pageSize >= filteredSeries.length}>Next â€º</button>
+                </div>
+              </div>
+            </>
+          )}
+        </main>
+      </div>
+
+      <AppModal
+        {...modal}
+        onCancel={closeModal}
+        inputValue={modalInputValue}
+        onInputChange={v => { modalInputValueRef.current = v; setModalInputValue(v); }}
+      />
+
+      {toastMsg && (
+        <div style={{
+          position: 'fixed', bottom: 24, right: 24,
+          background: 'var(--card-bg)', border: '1px solid var(--card-border)',
+          color: 'var(--foreground)', padding: '10px 16px',
+          borderRadius: 9, boxShadow: 'var(--shadow)', zIndex: 2000, fontSize: '0.85rem',
+        }}>
+          {toastMsg}
         </div>
-      </div>
+      )}
     </AuthGate>
-    <ConfirmModal
-      open={confirmOpen}
-      title={confirmTarget && confirmTarget.type === 'ticker' ? `Delete ${confirmTarget.ticker}?` : 'Confirm Delete'}
-      message={confirmTarget && confirmTarget.type === 'ticker' ? `This will remove ${confirmTarget.ticker} from your cached tickers.` : ''}
-      confirmText="Delete"
-      cancelText="Cancel"
-      onCancel={() => { setConfirmOpen(false); setConfirmTarget(null); }}
-      onConfirm={async () => {
-        if (confirmTarget && confirmTarget.type === 'ticker') {
-          try {
-            const res = await fetch(`/api/stock-cache?ticker=${encodeURIComponent(confirmTarget.ticker)}`, { method: 'DELETE' });
-            if (!res.ok) throw new Error('Delete failed');
-            await fetchCachedList();
-            setToastMsg(`Deleted ${confirmTarget.ticker}`);
-          } catch (e) {
-            console.warn('Failed to delete cached ticker', e);
-            setToastMsg(`Failed to delete ${confirmTarget.ticker}`);
-          }
-        }
-        setConfirmOpen(false);
-        setConfirmTarget(null);
-        setTimeout(() => setToastMsg(''), 2500);
-      }}
-    />
-    {toastMsg && (
-      <div style={{ position: 'fixed', bottom: 24, right: 24, background: '#222', color: '#fff', padding: '10px 14px', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.5)', zIndex: 2000 }}>
-        {toastMsg}
-      </div>
-    )}
     </ErrorBoundary>
   );
 }

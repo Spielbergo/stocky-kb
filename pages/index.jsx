@@ -2,11 +2,9 @@ import { useState, useRef, useEffect } from "react";
 import { marked } from "marked";
 import AuthGate from "../components/AuthGate";
 import NavBar from "../components/NavBar";
-import ConfirmModal from '../components/ConfirmModal';
+import AppModal from '../components/ConfirmModal';
 import { FiLayers, FiDatabase, FiCpu } from "react-icons/fi";
 import { FiCopy, FiEdit2 } from "react-icons/fi";
-
-import books from '../data/books.json'; // adjust path as needed
 
 
 export default function Home() {
@@ -35,14 +33,19 @@ export default function Home() {
     return null;
   });
   const [menuOpenId, setMenuOpenId] = useState(null);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [confirmTarget, setConfirmTarget] = useState(null);
+  const [modal, setModal] = useState({ open: false });
+  const [modalInputValue, setModalInputValue] = useState('');
+  const modalInputValueRef = useRef('');
+  const closeModal = () => { setModal({ open: false }); setModalInputValue(''); };
+  const showAlert = (message, title = 'Notice') =>
+    setModal({ open: true, variant: 'alert', title, message });
+  const showConfirm = (message, onConfirm, title = 'Are you sure?') =>
+    setModal({ open: true, variant: 'confirm', title, message, onConfirm });
   const [pendingChat, setPendingChat] = useState(true);
   const [editingChatId, setEditingChatId] = useState(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [editingMsgIdx, setEditingMsgIdx] = useState(null);
-  const [editingMsgValue, setEditingMsgValue] = useState("");  
-  const [hoveredChunkIdx, setHoveredChunkIdx] = useState(null);
+  const [editingMsgValue, setEditingMsgValue] = useState("");
 
   // Helper to create a new chat
   const createNewChat = () => {
@@ -122,7 +125,7 @@ export default function Home() {
 
   const handleGenerate = async () => {
     if (!userPrompt.trim()) {
-      alert("Please enter your question or objective about stocks.");
+      showAlert("Please enter your question or objective about stocks.", "Input required");
       return;
     }
     setShowResult(true);
@@ -259,26 +262,38 @@ export default function Home() {
     document.body.removeChild(tempDiv);
   };
 
-  const handleSavePlan = async (content, timestamp, wordCount) => {
+  const handleSavePlan = (content, timestamp, wordCount) => {
     if (!content) return;
-    const planTitle = prompt("Enter a title for this plan:");
-    if (!planTitle) return;
-    const res = await fetch("/api/save-plan", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: planTitle,
-        content,
-        timestamp: new Date().toISOString(),
-        platform,
-        wordCount,
-      }),
+    modalInputValueRef.current = '';
+    setModalInputValue('');
+    setModal({
+      open: true,
+      variant: 'input',
+      title: 'Save Plan',
+      inputPlaceholder: 'Enter a title for this plan...',
+      onConfirm: async () => {
+        const title = modalInputValueRef.current.trim();
+        if (!title) return;
+        closeModal();
+        try {
+          const res = await fetch('/api/save-plan', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              title,
+              content,
+              timestamp: new Date().toISOString(),
+              platform,
+              wordCount,
+            }),
+          });
+          if (res.ok) showAlert('Plan saved!', 'Success');
+          else showAlert('Failed to save plan.', 'Error');
+        } catch {
+          showAlert('Failed to save plan.', 'Error');
+        }
+      },
     });
-    if (res.ok) {
-      alert("Plan saved!");
-    } else {
-      alert("Failed to save plan.");
-    }
   };
 
   const Buttons = ({ content, timestamp, wordCount }) => (
@@ -426,9 +441,23 @@ export default function Home() {
                     cursor: "pointer"
                   }}
                   onClick={() => {
-                    setConfirmTarget({ type: 'chat', id: chat.id });
-                    setConfirmOpen(true);
                     setMenuOpenId(null);
+                    showConfirm(
+                      'This will permanently delete the selected chat.',
+                      () => {
+                        const id = chat.id;
+                        setChats(prev => prev.filter(c => c.id !== id));
+                        if (activeChatId === id) {
+                          setActiveChatId(null);
+                          setMessages([]);
+                          setShowResult(false);
+                        }
+                        setToastMsg('Chat deleted');
+                        setTimeout(() => setToastMsg(''), 2500);
+                        closeModal();
+                      },
+                      'Delete Chat?'
+                    );
                   }}
                 >
                   Delete
@@ -612,73 +641,8 @@ export default function Home() {
                       );
                       // If next message is AI, render it right below
                       if (messages[i + 1] && messages[i + 1].role === "ai") {
-  // Find the chunk referenced by this AI message
-  const chunkId = messages[i + 1].chunkId; // or chunkIndex
-  const chunk = books.find(b => b.id === chunkId); // or books[chunkIndex]
   result.push(
     <div key={`ai-${i + 1}`} style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
-      {/* Reference chunk label with tooltip */}
-      {chunk && (
-        <div
-          style={{
-            fontSize: 13,
-            color: "#888",
-            marginBottom: 4,
-            cursor: "pointer",
-            display: "inline-block",
-            position: "relative"
-          }}
-          onMouseEnter={() => setHoveredChunkIdx(i)}
-          onMouseLeave={() => setHoveredChunkIdx(null)}
-        >
-          Reference: Book Chunk
-          {hoveredChunkIdx === i && (
-            <div
-              style={{
-                position: "absolute",
-                top: "120%",
-                left: 0,
-                background: "#222",
-                color: "#fff",
-                padding: "12px 16px",
-                borderRadius: 8,
-                boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
-                zIndex: 1000,
-                minWidth: 220,
-                maxWidth: 340,
-                whiteSpace: "pre-wrap"
-              }}
-            >
-              <div style={{ marginBottom: 8, fontWeight: 500, color: "#fff" }}>
-                Book Chunk:
-              </div>
-              <div style={{ fontSize: 14, marginBottom: 8 }}>
-                {chunk.text}
-              </div>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(chunk.text);
-                  setShowToast(true);
-                  setTimeout(() => setShowToast(false), 2000);
-                }}
-                style={{
-                  background: "#fff",
-                  color: "#111",
-                  border: "none",
-                  borderRadius: 4,
-                  padding: "4px 10px",
-                  cursor: "pointer",
-                  fontSize: 13,
-                  fontWeight: 500,
-                }}
-              >
-                <FiCopy style={{ marginRight: 4, verticalAlign: "middle" }} />
-                Copy Chunk
-              </button>
-            </div>
-          )}
-        </div>
-      )}
                             <div
                               style={{
                                 borderRadius: "18px 18px 18px 4px",
@@ -868,29 +832,11 @@ export default function Home() {
           </div>
         )}
       </div>
-      <ConfirmModal
-        open={confirmOpen}
-        title={confirmTarget && confirmTarget.type === 'chat' ? 'Delete Chat?' : 'Confirm'}
-        message={confirmTarget && confirmTarget.type === 'chat' ? 'This will permanently delete the selected chat.' : ''}
-        confirmText="Delete"
-        cancelText="Cancel"
-        onCancel={() => { setConfirmOpen(false); setConfirmTarget(null); }}
-        onConfirm={() => {
-          // Handle confirmed delete
-          if (confirmTarget && confirmTarget.type === 'chat') {
-            const id = confirmTarget.id;
-            setChats(prev => prev.filter(c => c.id !== id));
-            if (activeChatId === id) {
-              setActiveChatId(null);
-              setMessages([]);
-              setShowResult(false);
-            }
-            setToastMsg('Chat deleted');
-            setTimeout(() => setToastMsg(''), 2500);
-          }
-          setConfirmOpen(false);
-          setConfirmTarget(null);
-        }}
+      <AppModal
+        {...modal}
+        onCancel={closeModal}
+        inputValue={modalInputValue}
+        onInputChange={(v) => { modalInputValueRef.current = v; setModalInputValue(v); }}
       />
     </AuthGate>
   );
