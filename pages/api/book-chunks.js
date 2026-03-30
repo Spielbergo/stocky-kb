@@ -7,6 +7,7 @@ export default async function handler(req, res) {
   const snapshot = await db.collection('book_chunks').where('bookTitle', '==', title).get();
   const chunks = snapshot.docs
     .map(doc => doc.data())
-    .filter(d => !profile || (d.profile || 'stocks') === profile);
+    .filter(d => !profile || (d.profile || 'stocks') === profile)
+    .sort((a, b) => (a.chunkIndex ?? 0) - (b.chunkIndex ?? 0));
   res.status(200).json(chunks);
 }

@@ -9,7 +9,7 @@ const PROFILES = {
     label: "Stocks",
     icon: "📈",
     links: [
-      { href: "/", label: "Generate" },
+      { href: "/", label: "Chat" },
       { href: "/stocks", label: "Markets" },
     ],
   },
@@ -17,17 +17,22 @@ const PROFILES = {
     label: "Social Media",
     icon: "📱",
     links: [
-      { href: "/", label: "Generate" },
+      { href: "/", label: "Chat" },
     ],
   },
   ads: {
     label: "Google Ads",
     icon: "📊",
     links: [
-      { href: "/", label: "Generate" },
+      { href: "/", label: "Chat" },
+      { href: "/ads-accounts", label: "Accounts" },
     ],
   },
 };
+
+/** Pages that are shared across all profiles — never redirect away from these. */
+const ALWAYS_AVAILABLE = (pathname) =>
+  pathname === "/admin" || pathname.startsWith("/admin/");
 
 export default function NavBar() {
   const router = useRouter();
@@ -47,7 +52,7 @@ export default function NavBar() {
 
   return (
     <nav className="navbar">
-      <div className="navbar-brand">Stocky KB</div>
+      <div className="navbar-brand">Yopie KB</div>
 
       <div className="profile-selector" ref={dropRef}>
         <button className="profile-btn" onClick={() => setOpen((o) => !o)}>
@@ -68,7 +73,15 @@ export default function NavBar() {
               <button
                 key={key}
                 className={`profile-option${profile === key ? " selected" : ""}`}
-                onClick={() => { setProfile(key); setOpen(false); }}
+                onClick={() => {
+                  setProfile(key);
+                  setOpen(false);
+                  // If the current page doesn't exist in the new profile, go to home
+                  const newLinks = PROFILES[key]?.links?.map((l) => l.href) ?? [];
+                  if (!ALWAYS_AVAILABLE(router.pathname) && !newLinks.includes(router.pathname)) {
+                    router.push("/");
+                  }
+                }}
               >
                 <span>{p.icon}</span>
                 <span>{p.label}</span>

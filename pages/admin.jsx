@@ -249,7 +249,12 @@ export default function AdminDashboard() {
                   </>
                 )}
               </label>
-              <button type="submit" className="upload-btn">Upload &amp; Embed</button>
+              <button type="submit" className="upload-btn" disabled={status === "Uploading..."}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
+                {status === "Uploading..." ? (
+                  <><span className="spinner spinner-sm spinner-white" /> Uploading…</>
+                ) : 'Upload & Embed'}
+              </button>
             </form>
           </div>
 
@@ -336,13 +341,8 @@ export default function AdminDashboard() {
               </p>
               {loadingChunks ? (
                 <div style={{ color: "var(--muted)", marginTop: 24, display: "flex", alignItems: "center", gap: 10 }}>
-                  <span className="loader" style={{
-                    display: "inline-block", width: 20, height: 20,
-                    border: "2px solid var(--card-border)", borderTop: "2px solid var(--accent)",
-                    borderRadius: "50%", animation: "spin 1s linear infinite",
-                  }} />
+                  <span className="spinner" />
                   Loading chunks...
-                  <style>{`@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}`}</style>
                 </div>
               ) : (
                 <>

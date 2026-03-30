@@ -464,7 +464,9 @@ export default function StocksPage() {
               onClick={() => fetchHistory(ticker, fetchPeriod)}
               disabled={loading}
             >
-              {loading ? 'Fetchingâ€¦' : 'Fetch History'}
+              {loading ? (
+                <><span className="spinner spinner-sm spinner-white" style={{ marginRight: 6 }} />Fetching…</>
+              ) : 'Fetch History'}
             </button>
             <button
               className="upload-btn"
@@ -497,7 +499,9 @@ export default function StocksPage() {
                 opacity: importLoading ? 0.6 : 1,
               }}
             >
-              {importLoading ? 'Importing…' : '↑ Choose CSV File'}
+              {importLoading ? (
+                <><span className="spinner spinner-sm spinner-white" style={{ marginRight: 6 }} />Importing…</>
+              ) : '↑ Choose CSV File'}
             </label>
             <input
               id="csv-file-input"
@@ -517,7 +521,9 @@ export default function StocksPage() {
             </h3>
             <ul className="sidebar-list" style={{ maxHeight: 'none' }}>
               {cachedLoading && (
-                <li className="sidebar-empty">Loadingâ€¦</li>
+                <li className="sidebar-empty" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <span className="spinner spinner-sm" /> Loading…
+                </li>
               )}
               {!cachedLoading && cachedList.length === 0 && (
                 <li className="sidebar-empty">No cached tickers yet</li>

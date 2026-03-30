@@ -51,7 +51,11 @@ export default function CacheAdmin() {
       <NavBar />
       <div style={{ padding: 24, marginLeft: 300 }}>
         <h1>Cached Stock History</h1>
-        {loading && <div>Loading...</div>}
+        {loading && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '16px 0', color: 'var(--muted)' }}>
+            <span className="spinner" /> Loading cache…
+          </div>
+        )}
         {!loading && list.length === 0 && <div>No cached tickers</div>}
         {!loading && list.length > 0 && (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>

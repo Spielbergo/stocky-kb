@@ -1,17 +1,19 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useContext } from "react";
 import { marked } from "marked";
 import AuthGate from "../components/AuthGate";
 import NavBar from "../components/NavBar";
+import { ProfileContext } from "./_app";
 import AppModal from '../components/ConfirmModal';
 import { FiLayers, FiDatabase, FiCpu } from "react-icons/fi";
 import { FiCopy, FiEdit2 } from "react-icons/fi";
 
 
 export default function Home() {
+  const { profile } = useContext(ProfileContext);
   const [platform, setPlatform] = useState("Opportunity Type");
   const [userPrompt, setUserPrompt] = useState("");
   const [sourceOption, setSourceOption] = useState("mydata");
-  const [geminiModel, setGeminiModel] = useState("gemini-2.5-flash");
+  const [geminiModel, setGeminiModel] = useState("gemini-2.5-flash-lite");
   const [loading, setLoading] = useState(false);
   const [wordCount, setWordCount] = useState(0);
   const [showToast, setShowToast] = useState(false);
@@ -19,19 +21,12 @@ export default function Home() {
   const [timestamp, setTimestamp] = useState("");
   const [showResult, setShowResult] = useState(false);
   const [messages, setMessages] = useState([]);
-  const [chats, setChats] = useState(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("mp_chats");
-      return saved ? JSON.parse(saved) : [];
-    }
-    return [];
-  });
-  const [activeChatId, setActiveChatId] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("mp_activeChatId") || null;
-    }
-    return null;
-  });
+  const [chats, setChats] = useState([]);
+  const [chatsLoading, setChatsLoading] = useState(true);
+  const [activeChatId, setActiveChatId] = useState(null);
+  // Refs for debounced per-chat Firestore saves
+  const pendingSavesRef = useRef({});
+  const prevChatsRef = useRef([]);
   const [menuOpenId, setMenuOpenId] = useState(null);
   const [modal, setModal] = useState({ open: false });
   const [modalInputValue, setModalInputValue] = useState('');
@@ -55,6 +50,39 @@ export default function Home() {
     setShowResult(false);
   };
 
+  // Load chats for the active profile; reset state on profile switch
+  useEffect(() => {
+    // Cancel any in-flight debounced saves from the previous profile
+    Object.values(pendingSavesRef.current).forEach(t => clearTimeout(t));
+    pendingSavesRef.current = {};
+    // Reset UI
+    setChats([]);
+    prevChatsRef.current = [];
+    setMessages([]);
+    setShowResult(false);
+    setPendingChat(true);
+    setActiveChatId(null);
+    setChatsLoading(true);
+    fetch(`/api/chats?profile=${encodeURIComponent(profile)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setChats(data);
+          prevChatsRef.current = data;
+          // Restore the last-viewed chat for this profile
+          const savedId = localStorage.getItem(`mp_activeChatId_${profile}`);
+          if (savedId && data.find(c => c.id === savedId)) {
+            setActiveChatId(savedId);
+            setPendingChat(false);
+            setShowResult(true);
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => setChatsLoading(false));
+  }, [profile]);
+
+  // When messages change, sync them into the active chat in the chats array
   useEffect(() => {
     if (!activeChatId) return;
     setChats(prev =>
@@ -64,15 +92,31 @@ export default function Home() {
     );
   }, [messages, activeChatId]);
 
+  // Debounced save: only write chats that actually changed to Firestore
   useEffect(() => {
-    localStorage.setItem("mp_chats", JSON.stringify(chats));
+    const prev = prevChatsRef.current;
+    chats.forEach(chat => {
+      const prevChat = prev.find(c => c.id === chat.id);
+      if (!prevChat || JSON.stringify(prevChat) !== JSON.stringify(chat)) {
+        if (pendingSavesRef.current[chat.id]) clearTimeout(pendingSavesRef.current[chat.id]);
+        pendingSavesRef.current[chat.id] = setTimeout(() => {
+          fetch('/api/chats', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...chat, updatedAt: new Date().toISOString() }),
+          }).catch(() => {});
+          delete pendingSavesRef.current[chat.id];
+        }, 800);
+      }
+    });
+    prevChatsRef.current = chats;
   }, [chats]);
 
   useEffect(() => {
     if (activeChatId) {
-      localStorage.setItem("mp_activeChatId", activeChatId);
+      localStorage.setItem(`mp_activeChatId_${profile}`, activeChatId);
     }
-  }, [activeChatId]);
+  }, [activeChatId, profile]);
 
   useEffect(() => {
     if (!activeChatId) return;
@@ -80,15 +124,6 @@ export default function Home() {
     if (chat) setMessages(chat.messages);
     else setMessages([]);
   }, [activeChatId]);
-
-  useEffect(() => {
-    if (!activeChatId) return;
-    setChats(prev =>
-      prev.map(chat =>
-        chat.id === activeChatId ? { ...chat, messages } : chat
-      )
-    );
-  }, [messages]);
 
   const handleSelectChat = (chatId) => {
     setActiveChatId(chatId);
@@ -137,6 +172,7 @@ export default function Home() {
         id: Date.now().toString(),
         title: userPrompt.slice(0, 40) || "New Chat",
         messages: [{ role: "user", content: userPrompt }],
+        profile,
       };
       setChats(prev => [newChat, ...prev]);
       setActiveChatId(newChat.id);
@@ -320,7 +356,12 @@ export default function Home() {
         zIndex: 0
       }}>
         <button onClick={createNewChat} style={{ marginBottom: 16, width: "100%" }}>+ New Chat</button>
-        {chats.map(chat => (
+        {chatsLoading && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {[0,1,2].map(i => <div key={i} className="skeleton" style={{ height: 40, borderRadius: 6 }} />)}
+          </div>
+        )}
+        {!chatsLoading && chats.map(chat => (
           <div
             key={chat.id}
             className="chat-item"
@@ -452,6 +493,7 @@ export default function Home() {
                           setMessages([]);
                           setShowResult(false);
                         }
+                        fetch(`/api/chats?id=${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
                         setToastMsg('Chat deleted');
                         setTimeout(() => setToastMsg(''), 2500);
                         closeModal();

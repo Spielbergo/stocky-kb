@@ -1133,3 +1133,51 @@ p strong::before {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
 }
+
+/* ── Spinner & Skeleton loaders ── */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--card-border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.spinner-sm {
+  width: 13px;
+  height: 13px;
+  border-width: 2px;
+}
+.spinner-lg {
+  width: 34px;
+  height: 34px;
+  border-width: 3px;
+}
+/* Use on dark (accent-coloured) buttons */
+.spinner-white {
+  border-color: rgba(255,255,255,0.3);
+  border-top-color: #fff;
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--input-bg) 25%,
+    var(--card-border) 50%,
+    var(--input-bg) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: 6px;
+}

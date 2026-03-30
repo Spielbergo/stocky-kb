@@ -3,7 +3,7 @@ import os from "os";
 import path from "path";
 import { randomUUID } from "crypto";
 import { IncomingForm } from "formidable";
-import pdfParse from "pdf-parse";
+import pdfParse from "pdf-parse/lib/pdf-parse.js";
 import { setProgress, clearProgress } from "./progressStore";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { getDb } from "../../lib/firebase";
@@ -90,6 +90,7 @@ export default async function handler(req, res) {
       const embedding = await getEmbedding(text);
       embeddedChunks.push({
         id: randomUUID(),
+        chunkIndex: i,
         text,
         embedding,
         bookTitle,
@@ -117,6 +118,6 @@ export default async function handler(req, res) {
     res.status(200).json({ message: "Book added", chunks: embeddedChunks.length });
   } catch (err) {
     console.error("Upload error:", err);
-    res.status(500).json({ error: "Server error" });
+    res.status(500).json({ error: err.message || "Server error" });
   }
 }
