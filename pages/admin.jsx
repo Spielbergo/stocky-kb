@@ -33,6 +33,7 @@ export default function AdminDashboard() {
   const [books, setBooks]             = useState([]);
   const [plans, setPlans]             = useState([]);
   const [selectedBook, setSelectedBook] = useState(null);
+  const [removingBook, setRemovingBook] = useState(null);
   const [selectedPlan, setSelectedPlan] = useState(null);
 
   // refreshKey is incremented only after a successful upload, triggering a re-fetch.
@@ -115,7 +116,9 @@ export default function AdminDashboard() {
       `Remove "${title}" and all its chunks? This cannot be undone.`,
       async () => {
         closeModal();
+        setRemovingBook(title);
         const res = await fetch(`/api/remove-book?title=${encodeURIComponent(title)}&profile=${profile}`, { method: "DELETE" });
+        setRemovingBook(null);
         if (res.ok) {
           setBooks((prev) => prev.filter((b) => b.bookTitle !== title));
           setSelectedBook(null);
@@ -267,21 +270,30 @@ export default function AdminDashboard() {
               {books.map((book) => (
                 <li
                   key={book.bookTitle}
-                  className={`sidebar-item${selectedBook?.bookTitle === book.bookTitle ? " active" : ""}`}
-                  onClick={() => { setSelectedBook(book); setSelectedPlan(null); }}
+                  className={`sidebar-item${selectedBook?.bookTitle === book.bookTitle ? " active" : ""}${removingBook === book.bookTitle ? " sidebar-item-removing" : ""}`}
+                  onClick={() => { if (removingBook === book.bookTitle) return; setSelectedBook(book); setSelectedPlan(null); }}
                 >
-                  <span className="sidebar-item-icon">📖</span>
-                  <span className="sidebar-item-label">{book.bookTitle}</span>
-                  <span className="sidebar-item-meta">{book.count}</span>
-                  <button
-                    className="icon-btn danger"
-                    onClick={(e) => { e.stopPropagation(); handleRemoveBook(book.bookTitle); }}
-                    title="Remove book"
-                  >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/>
-                    </svg>
-                  </button>
+                  {removingBook === book.bookTitle ? (
+                    <>
+                      <span className="spinner spinner-sm" style={{ flexShrink: 0 }} />
+                      <span className="sidebar-item-label" style={{ color: 'var(--muted)' }}>Deleting…</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="sidebar-item-icon">📖</span>
+                      <span className="sidebar-item-label">{book.bookTitle}</span>
+                      <span className="sidebar-item-meta">{book.count}</span>
+                      <button
+                        className="icon-btn danger"
+                        onClick={(e) => { e.stopPropagation(); handleRemoveBook(book.bookTitle); }}
+                        title="Remove book"
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/>
+                        </svg>
+                      </button>
+                    </>
+                  )}
                 </li>
               ))}
               {books.length === 0 && <li className="sidebar-empty">No books for this profile yet</li>}
