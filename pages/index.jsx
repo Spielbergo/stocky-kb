@@ -344,171 +344,131 @@ export default function Home() {
   return (
     <AuthGate>
       <NavBar />
-      <div style={{
-        position: "fixed",
-        left: 0,
-        top: 3,
-        bottom: 0,
-        width: 275,
-        padding: "76px 16px 16px 16px",
-        background: "#111",
-        overflowY: "auto",
-        zIndex: 0
-      }}>
-        <button onClick={createNewChat} style={{ marginBottom: 16, width: "100%" }}>+ New Chat</button>
-        {chatsLoading && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {[0,1,2].map(i => <div key={i} className="skeleton" style={{ height: 40, borderRadius: 6 }} />)}
-          </div>
-        )}
-        {!chatsLoading && chats.map(chat => (
-          <div
-            key={chat.id}
-            className="chat-item"
-            style={{
-              marginBottom: 8,
-              borderRadius: 6,
-              background: chat.id === activeChatId ? "#333" : "#111",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              position: "relative"
-            }}
-            onClick={() => handleSelectChat(chat.id)}
-          >
-            {editingChatId === chat.id ? (
-              <input
-                value={editingTitle}
-                autoFocus
-                onChange={e => setEditingTitle(e.target.value)}
-                onBlur={() => {
-                  handleEditTitle(chat.id, editingTitle.trim() || "New Chat");
-                  setEditingChatId(null);
-                }}
-                onKeyDown={e => {
-                  if (e.key === "Enter") {
-                    handleEditTitle(chat.id, editingTitle.trim() || "New Chat");
-                    setEditingChatId(null);
-                  } else if (e.key === "Escape") {
-                    setEditingChatId(null);
-                  }
-                }}
-                style={{
-                  border: "1px solid #555",
-                  background: "#222",
-                  fontWeight: 500,
-                  fontSize: 15,
-                  flex: 1,
-                  outline: "none",
-                  color: "#fff",
-                  borderRadius: 4,
-                  padding: "2px 6px"
-                }}
-              />
-            ) : (
-              <input
-                value={chat.title}
-                readOnly
-                style={{
-                  border: "none",
-                  background: "#333",
-                  fontWeight: 500,
-                  fontSize: 15,
-                  flex: 1,
-                  outline: "none",
-                  color: chat.id === activeChatId ? "#fff" : "#eee"
-                }}
-              />
-            )}
-            <button
-              style={{
-                position: "relative",
-                left: -20,
-                background: "none",
-                border: "none",
-                color: "#aaa",
-                cursor: "pointer",
-                padding: 4,
-                marginBottom: 8,
-                marginLeft: 4,
-                fontSize: 18,
-                fontWeight: 700,
-              }}
-              onMouseDown={e => { e.stopPropagation(); setMenuOpenId(menuOpenId === chat.id ? null : chat.id); }}
-              onClick={e => e.stopPropagation()}
-              aria-label="Chat options"
-            >
-              &#8230;
-            </button>
-            {menuOpenId === chat.id && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: 36,
-                  right: 8,
-                  background: "#222",
-                  borderRadius: 6,
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                  zIndex: 100,
-                  minWidth: 120
-                }}
-                onClick={e => e.stopPropagation()}
-              >
-                <button
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    border: "none",
-                    background: "none",
-                    textAlign: "left",
-                    cursor: "pointer"
-                  }}
-                  onClick={() => {
-                    setEditingChatId(chat.id);
-                    setEditingTitle(chat.title);
-                    setMenuOpenId(null);
-                  }}
-                >
-                  Rename
-                </button>
-                <button
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    border: "none",
-                    background: "none",
-                    textAlign: "left",
-                    color: "#d00",
-                    cursor: "pointer"
-                  }}
-                  onClick={() => {
-                    setMenuOpenId(null);
-                    showConfirm(
-                      'This will permanently delete the selected chat.',
-                      () => {
-                        const id = chat.id;
-                        setChats(prev => prev.filter(c => c.id !== id));
-                        if (activeChatId === id) {
-                          setActiveChatId(null);
-                          setMessages([]);
-                          setShowResult(false);
-                        }
-                        fetch(`/api/chats?id=${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
-                        setToastMsg('Chat deleted');
-                        setTimeout(() => setToastMsg(''), 2500);
-                        closeModal();
-                      },
-                      'Delete Chat?'
-                    );
-                  }}
-                >
-                  Delete
-                </button>
+      <aside className="chat-sidebar">
+        <div className="sidebar-section" style={{ flexShrink: 0 }}>
+          <button onClick={createNewChat} className="upload-btn">+ New Chat</button>
+        </div>
+        <div className="sidebar-section sidebar-list-section" style={{ flex: 1, minHeight: 0 }}>
+          <h3 className="sidebar-section-title">
+            Chats <span className="count-badge">{chats.length}</span>
+          </h3>
+          <ul className="sidebar-list" style={{ maxHeight: 'none' }}>
+            {chatsLoading && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {[0,1,2].map(i => <div key={i} className="skeleton" style={{ height: 40, borderRadius: 6 }} />)}
               </div>
             )}
-          </div>
-        ))}
-      </div>
+            {!chatsLoading && chats.length === 0 && (
+              <li className="sidebar-empty">No chats yet</li>
+            )}
+            {!chatsLoading && chats.map(chat => (
+              <li
+                key={chat.id}
+                className={`sidebar-item${chat.id === activeChatId ? ' active' : ''}`}
+                style={{ position: "relative" }}
+                onClick={() => handleSelectChat(chat.id)}
+              >
+                {editingChatId === chat.id ? (
+                  <input
+                    value={editingTitle}
+                    autoFocus
+                    onChange={e => setEditingTitle(e.target.value)}
+                    onBlur={() => {
+                      handleEditTitle(chat.id, editingTitle.trim() || "New Chat");
+                      setEditingChatId(null);
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") {
+                        handleEditTitle(chat.id, editingTitle.trim() || "New Chat");
+                        setEditingChatId(null);
+                      } else if (e.key === "Escape") {
+                        setEditingChatId(null);
+                      }
+                    }}
+                    style={{
+                      border: "1px solid var(--card-border)",
+                      background: "var(--input-bg)",
+                      fontWeight: 500,
+                      fontSize: "0.86rem",
+                      flex: 1,
+                      outline: "none",
+                      color: "var(--foreground)",
+                      borderRadius: 4,
+                      padding: "2px 6px"
+                    }}
+                  />
+                ) : (
+                  <span className="sidebar-item-label">{chat.title}</span>
+                )}
+                <button
+                  className="icon-btn"
+                  style={{ flexShrink: 0, fontSize: 16, fontWeight: 700, padding: "2px 5px" }}
+                  onMouseDown={e => { e.stopPropagation(); setMenuOpenId(menuOpenId === chat.id ? null : chat.id); }}
+                  onClick={e => e.stopPropagation()}
+                  aria-label="Chat options"
+                >
+                  &#8230;
+                </button>
+                {menuOpenId === chat.id && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 36,
+                      right: 8,
+                      background: "var(--card-bg)",
+                      border: "1px solid var(--card-border)",
+                      borderRadius: 8,
+                      boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
+                      zIndex: 100,
+                      minWidth: 130,
+                      overflow: "hidden"
+                    }}
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <button
+                      className="icon-btn"
+                      style={{ width: "100%", padding: "9px 13px", borderRadius: 0, justifyContent: "flex-start", fontSize: "0.84rem", fontWeight: 500, color: "var(--foreground)" }}
+                      onClick={() => {
+                        setEditingChatId(chat.id);
+                        setEditingTitle(chat.title);
+                        setMenuOpenId(null);
+                      }}
+                    >
+                      Rename
+                    </button>
+                    <button
+                      className="icon-btn danger"
+                      style={{ width: "100%", padding: "9px 13px", borderRadius: 0, justifyContent: "flex-start", fontSize: "0.84rem", fontWeight: 500 }}
+                      onClick={() => {
+                        setMenuOpenId(null);
+                        showConfirm(
+                          'This will permanently delete the selected chat.',
+                          () => {
+                            const id = chat.id;
+                            setChats(prev => prev.filter(c => c.id !== id));
+                            if (activeChatId === id) {
+                              setActiveChatId(null);
+                              setMessages([]);
+                              setShowResult(false);
+                            }
+                            fetch(`/api/chats?id=${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
+                            setToastMsg('Chat deleted');
+                            setTimeout(() => setToastMsg(''), 2500);
+                            closeModal();
+                          },
+                          'Delete Chat?'
+                        );
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </aside>
       <div
         style={{
           minHeight: "90vh",
@@ -517,7 +477,7 @@ export default function Home() {
           justifyContent: "center",
           background: "var(--background)",
           flexDirection: "column",
-          marginLeft: 200,
+          marginLeft: 320,
         }}
       >
         {/* Result Area */}

@@ -196,8 +196,8 @@ li {
 }
 
 .admin-sidebar {
-  width: 280px;
-  min-width: 250px;
+  width: 320px;
+  min-width: 290px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -229,11 +229,11 @@ li {
 
 .sidebar-profile-label {
   font-weight: 700;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
 }
 
 .sidebar-profile-sub {
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   color: var(--muted);
   margin-top: 1px;
 }
@@ -251,7 +251,7 @@ li {
 }
 
 .sidebar-section-title {
-  font-size: 0.68rem;
+  font-size: 0.74rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.09em;
@@ -266,7 +266,7 @@ li {
 .count-badge {
   background: var(--input-bg);
   color: var(--muted);
-  font-size: 0.68rem;
+  font-size: 0.74rem;
   padding: 1px 6px;
   border-radius: 99px;
   font-weight: 500;
@@ -282,7 +282,7 @@ li {
   border: 1px solid var(--card-border);
   border-radius: 7px;
   color: var(--foreground);
-  font-size: 0.83rem;
+  font-size: 0.88rem;
   box-sizing: border-box;
 }
 
@@ -297,7 +297,7 @@ li {
   padding: 16px 10px;
   margin-bottom: 10px;
   cursor: pointer;
-  font-size: 0.78rem;
+  font-size: 0.84rem;
   color: var(--muted);
   text-align: center;
   transition: border-color 0.2s, background 0.2s;
@@ -321,7 +321,7 @@ li {
 .upload-btn {
   width: 100%;
   padding: 8px;
-  font-size: 0.83rem;
+  font-size: 0.88rem;
   border-radius: 7px;
   margin: 0;
 }
@@ -373,7 +373,7 @@ li {
 
 .sidebar-item-label {
   flex: 1;
-  font-size: 0.8rem;
+  font-size: 0.86rem;
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -382,7 +382,7 @@ li {
 }
 
 .sidebar-item-meta {
-  font-size: 0.7rem;
+  font-size: 0.76rem;
   color: var(--muted);
   flex-shrink: 0;
 }
@@ -394,7 +394,7 @@ li {
 }
 
 .sidebar-empty {
-  font-size: 0.78rem;
+  font-size: 0.84rem;
   color: var(--muted);
   padding: 8px;
   font-style: italic;
@@ -420,6 +420,21 @@ li {
 .icon-btn.danger:hover {
   background: rgba(239,68,68,0.1);
   color: var(--danger);
+}
+
+/* ── Chat sidebar (fixed-position variant of admin-sidebar) ── */
+.chat-sidebar {
+  position: fixed;
+  left: 0;
+  top: 52px;
+  bottom: 0;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg);
+  border-right: 1px solid var(--card-border);
+  overflow-y: auto;
+  z-index: 5;
 }
 
 /* ── Admin main ── */
