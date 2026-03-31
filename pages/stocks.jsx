@@ -74,6 +74,9 @@ export default function StocksPage() {
   const [history, setHistory]         = useState([]);
   const [stockMeta, setStockMeta]     = useState(null); // { startDate, endDate, cached, updated_at }
   const [error, setError]             = useState(null);
+  const [errorCode, setErrorCode]     = useState(null);   // 'RATE_LIMITED' | 'NOT_FOUND' | 'TIMEOUT' | 'UNKNOWN'
+  const [retryAt, setRetryAt]         = useState(null);   // Date after which retry is allowed
+  const [retryCountdown, setRetryCountdown] = useState(0);
   const [cachedList, setCachedList]   = useState([]);
   const [cachedLoading, setCachedLoading] = useState(false);
   const [activeTicker, setActiveTicker]   = useState(null); // ticker whose data is loaded
@@ -163,6 +166,19 @@ export default function StocksPage() {
   // â”€â”€ Cached list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => { fetchCachedList(); }, []);
 
+  // ── Retry countdown ticker ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!retryAt) return;
+    const tick = () => {
+      const secs = Math.max(0, Math.ceil((retryAt - Date.now()) / 1000));
+      setRetryCountdown(secs);
+      if (secs === 0) setRetryAt(null);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [retryAt]);
+
   const fetchCachedList = async () => {
     setCachedLoading(true);
     try {
@@ -181,6 +197,8 @@ export default function StocksPage() {
       return;
     }
     setError(null);
+    setErrorCode(null);
+    setRetryAt(null);
     setLoading(true);
     setTicker(t);
     try {
@@ -189,8 +207,11 @@ export default function StocksPage() {
       if (force) params.set('force', '1');
       const res  = await fetch(`/api/stock-history?${params}`);
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to fetch');
+      if (!res.ok) throw new Error(data.error || 'Failed to fetch', { cause: { code: data.code, retryAfter: data.retryAfter } });
       const historyRows = data.data || [];
+      if (historyRows.length === 0) {
+        throw new Error(`No data returned for ${t}. The ticker may be unsupported or have no history for this date range.`, { cause: { code: 'NOT_FOUND' } });
+      }
       const meta = {
         startDate:  data.startDate,
         endDate:    data.endDate,
@@ -205,7 +226,11 @@ export default function StocksPage() {
       setPage(1);
       await fetchCachedList();
     } catch (e) {
+      const code        = e?.cause?.code || 'UNKNOWN';
+      const retryAfter  = e?.cause?.retryAfter || (code === 'RATE_LIMITED' ? 60 : 0);
       setError(e.message);
+      setErrorCode(code);
+      if (retryAfter > 0) setRetryAt(Date.now() + retryAfter * 1000);
       setHistory([]);
       setStockMeta(null);
     } finally {
@@ -643,7 +668,46 @@ export default function StocksPage() {
         {/* â”€â”€ Main â”€â”€ */}
         <main className="admin-main">
 
-          {error && <div className="error-banner">{error}</div>}
+          {error && (
+            <div className="error-banner" style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {errorCode === 'RATE_LIMITED' && (
+                  <div style={{ fontWeight: 700, marginBottom: 3 }}>Rate limit reached</div>
+                )}
+                {errorCode === 'NOT_FOUND' && (
+                  <div style={{ fontWeight: 700, marginBottom: 3 }}>Ticker not found</div>
+                )}
+                {errorCode === 'TIMEOUT' && (
+                  <div style={{ fontWeight: 700, marginBottom: 3 }}>Request timed out</div>
+                )}
+                <div>{error}</div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                {errorCode === 'RATE_LIMITED' && retryCountdown > 0 && (
+                  <span style={{ fontSize: '0.78rem', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                    Retry in {retryCountdown}s
+                  </span>
+                )}
+                <button
+                  className="upload-btn"
+                  disabled={errorCode === 'RATE_LIMITED' && retryCountdown > 0}
+                  onClick={() => fetchHistory(ticker, fetchPeriod)}
+                  style={{ fontSize: '0.78rem', padding: '4px 12px', whiteSpace: 'nowrap' }}
+                >
+                  ↺ Retry
+                </button>
+                {errorCode !== 'NOT_FOUND' && (
+                  <button
+                    className="upload-btn"
+                    onClick={() => setCsvModal({ open: true })}
+                    style={{ fontSize: '0.78rem', padding: '4px 12px', whiteSpace: 'nowrap', background: 'var(--input-bg)', color: 'var(--foreground)', border: '1px solid var(--card-border)' }}
+                  >
+                    + Import CSV
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Stats card */}
           {stats && (

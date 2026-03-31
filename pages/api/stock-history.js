@@ -329,12 +329,41 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error('stock-history error', error);
     const msg = error?.message || String(error) || 'Unknown error';
+    const msgLo = msg.toLowerCase();
+
     const isRateLimit = msg.includes('429') ||
-                        msg.toLowerCase().includes('too many requests') ||
-                        (msg.toLowerCase().includes('unexpected token') && msg.toLowerCase().includes('too many'));
+                        msgLo.includes('too many requests') ||
+                        (msgLo.includes('unexpected token') && msgLo.includes('too many'));
+
+    const isNotFound = msgLo.includes('no data') ||
+                       msgLo.includes('no results') ||
+                       msgLo.includes('not found') ||
+                       msgLo.includes('invalid symbol') ||
+                       msgLo.includes('no fundamentals') ||
+                       msgLo.includes('returned no data') ||
+                       msgLo.includes('returned no usable data');
+
+    const isTimeout  = msgLo.includes('abort') || msgLo.includes('timeout') || msgLo.includes('timed out');
+
     if (isRateLimit) {
-      return res.status(429).json({ error: 'All data sources are rate-limited right now. Wait 60 seconds and try again, or import data manually via CSV.' });
+      return res.status(429).json({
+        error: 'All data sources are rate-limited. Wait 60 seconds and try again, or upload data manually via CSV.',
+        code:  'RATE_LIMITED',
+        retryAfter: 60,
+      });
     }
-    return res.status(500).json({ error: msg });
+    if (isNotFound) {
+      return res.status(404).json({
+        error: `No data found for "${req.query.ticker}". Check the ticker symbol, or upload data manually via CSV.`,
+        code:  'NOT_FOUND',
+      });
+    }
+    if (isTimeout) {
+      return res.status(504).json({
+        error: 'The data source timed out. Try again in a moment, or use a shorter date range.',
+        code:  'TIMEOUT',
+      });
+    }
+    return res.status(500).json({ error: msg, code: 'UNKNOWN' });
   }
 }

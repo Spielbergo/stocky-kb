@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import AuthGate from '../components/AuthGate';
 import NavBar from '../components/NavBar';
 import ErrorBoundary from '../components/ErrorBoundary';
@@ -66,6 +66,87 @@ export default function AdsAccountsPage() {
 
   const toast = (msg) => { setToastMsg(msg); setTimeout(() => setToastMsg(''), 2500); };
   const closeModal  = () => setModal({ open: false });
+
+  // ── CSV Import modal ──────────────────────────────────────────────────────
+  const CSV_FIELDS    = ['date', 'campaign', 'impressions', 'clicks', 'cost', 'conversions'];
+  const CSV_REQUIRED  = ['date', 'campaign', 'impressions', 'clicks', 'cost'];
+  const [csvModal, setCsvModal]               = useState({ open: false });
+  const [csvModalLabel, setCsvModalLabel]     = useState('');
+  const [csvModalFile, setCsvModalFile]       = useState(null);
+  const [csvModalHeaders, setCsvModalHeaders] = useState([]);
+  const [csvModalMapping, setCsvModalMapping] = useState({});
+  const [csvModalLoading, setCsvModalLoading] = useState(false);
+  const [csvModalError, setCsvModalError]     = useState(null);
+  const csvModalFileRef = useRef(null);
+
+  const handleCsvModalFile = async (file) => {
+    setCsvModalFile(file);
+    const text = await file.text();
+    const firstLine = text.split('\n')[0];
+    const headers = firstLine.split(',').map(h => h.trim().replace(/^"|"/g, ''));
+    setCsvModalHeaders(headers);
+    const fieldAliases = {
+      date:        ['date', 'day', 'Date', 'Day'],
+      campaign:    ['campaign', 'campaign name', 'Campaign', 'Campaign name', 'Campaign Name'],
+      impressions: ['impressions', 'impr.', 'impr', 'Impressions'],
+      clicks:      ['clicks', 'Clicks'],
+      cost:        ['cost', 'spend', 'cost (usd)', 'cost (aud)', 'Cost', 'Spend'],
+      conversions: ['conversions', 'conv.', 'conv', 'Conversions'],
+    };
+    const autoMap = {};
+    for (const [field, aliases] of Object.entries(fieldAliases)) {
+      const match = headers.find(h => aliases.some(a => a.toLowerCase() === h.toLowerCase().trim()));
+      if (match) autoMap[field] = match;
+    }
+    setCsvModalMapping(autoMap);
+  };
+
+  const submitCsvImport = async () => {
+    const lbl = csvModalLabel.trim();
+    if (!lbl) { setCsvModalError('Enter a label for this data.'); return; }
+    if (!csvModalFile) { setCsvModalError('Select a CSV file.'); return; }
+    const unmapped = CSV_REQUIRED.filter(f => !csvModalMapping[f]);
+    if (unmapped.length) { setCsvModalError(`Map all required fields. Missing: ${unmapped.join(', ')}`); return; }
+    setCsvModalLoading(true);
+    setCsvModalError(null);
+    try {
+      const rawText = await csvModalFile.text();
+      const lines = rawText.split('\n').filter(l => l.trim());
+      const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"/g, ''));
+      const rows = lines.slice(1).map(line => {
+        const cols = line.split(',').map(c => c.trim().replace(/^"|"/g, ''));
+        const row = {};
+        for (const field of CSV_FIELDS) {
+          if (!csvModalMapping[field]) continue;
+          const i = headers.indexOf(csvModalMapping[field]);
+          row[field] = i >= 0 ? cols[i] : '';
+        }
+        return row;
+      });
+      const standardCsv = [
+        CSV_FIELDS.join(','),
+        ...rows.map(r => CSV_FIELDS.map(f => r[f] ?? '').join(',')),
+      ].join('\n');
+      const res = await fetch('/api/ads-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: lbl, csv: standardCsv }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Import failed');
+      toast(`Imported ${json.imported} rows for "${json.label}"${json.skipped ? ` (${json.skipped} skipped)` : ''}`);
+      setCsvModal({ open: false });
+      setCsvModalFile(null);
+      setCsvModalHeaders([]);
+      setCsvModalMapping({});
+      setCsvModalLabel('');
+      if (csvModalFileRef.current) csvModalFileRef.current.value = '';
+    } catch (e) {
+      setCsvModalError(e.message);
+    } finally {
+      setCsvModalLoading(false);
+    }
+  };
   const showAlert   = (message, title = 'Notice') =>
     setModal({ open: true, variant: 'alert', title, message });
 
@@ -159,7 +240,16 @@ export default function AdsAccountsPage() {
             </div>
 
             <div className="sidebar-section">
-              <h3 className="sidebar-section-title">Sync</h3>
+              <h3 className="sidebar-section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                Sync
+                <button
+                  className="upload-btn"
+                  onClick={() => { setCsvModal({ open: true }); setCsvModalError(null); }}
+                  style={{ fontSize: '0.72rem', padding: '3px 10px', marginLeft: 8 }}
+                >
+                  + Import
+                </button>
+              </h3>
               <button
                 className="upload-btn"
                 onClick={syncAccounts}
@@ -412,6 +502,128 @@ export default function AdsAccountsPage() {
       </AuthGate>
 
       <AppModal {...modal} onCancel={closeModal} />
+
+      {/* ── CSV Import modal ── */}
+      {csvModal.open && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onMouseDown={e => { if (e.target === e.currentTarget) setCsvModal({ open: false }); }}
+        >
+          <div style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 12, padding: '22px 24px', width: 500, maxWidth: '92vw', maxHeight: '85vh', overflowY: 'auto', boxShadow: 'var(--shadow)' }}>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+              <h3 style={{ margin: 0, fontSize: '1rem' }}>Import Ads CSV</h3>
+              <button onMouseDown={() => setCsvModal({ open: false })} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 20, lineHeight: 1, padding: '2px 6px' }}>×</button>
+            </div>
+
+            <label style={{ fontSize: '0.8rem', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Data Label</label>
+            <input
+              className="sidebar-input"
+              placeholder="e.g. Brand Campaigns Q1 2026"
+              value={csvModalLabel}
+              onChange={e => setCsvModalLabel(e.target.value)}
+              style={{ marginBottom: 14 }}
+            />
+
+            <label style={{ fontSize: '0.8rem', color: 'var(--muted)', display: 'block', marginBottom: 6 }}>CSV File</label>
+            <label
+              htmlFor="ads-csv-modal-file"
+              onDragOver={e => { e.preventDefault(); e.currentTarget.setAttribute('data-drag', 'true'); }}
+              onDragLeave={e => e.currentTarget.removeAttribute('data-drag')}
+              onDrop={e => {
+                e.preventDefault();
+                e.currentTarget.removeAttribute('data-drag');
+                const f = e.dataTransfer.files?.[0];
+                if (f) handleCsvModalFile(f);
+              }}
+              style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                gap: 8, marginBottom: 14, cursor: 'pointer', padding: '22px 16px',
+                border: '2px dashed var(--card-border)', borderRadius: 10,
+                background: 'var(--input-bg)', transition: 'border-color 0.15s, background 0.15s',
+                textAlign: 'center',
+              }}
+            >
+              {csvModalFile ? (
+                <>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--foreground)' }}>{csvModalFile.name}</span>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>{(csvModalFile.size / 1024).toFixed(1)} KB &nbsp;·&nbsp; click to change</span>
+                </>
+              ) : (
+                <>
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Drop CSV here</span>
+                  <span style={{ fontSize: '0.74rem', color: 'var(--muted)' }}>or click to browse</span>
+                </>
+              )}
+            </label>
+            <input
+              id="ads-csv-modal-file"
+              ref={csvModalFileRef}
+              type="file"
+              accept=".csv,text/csv"
+              style={{ display: 'none' }}
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleCsvModalFile(f); }}
+            />
+
+            {csvModalHeaders.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 6 }}>Column Mapping</div>
+                <div style={{ fontSize: '0.74rem', color: 'var(--muted)', marginBottom: 10 }}>Map each required field to the matching column in your CSV.</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 14px' }}>
+                  {CSV_FIELDS.map(field => (
+                    <div key={field}>
+                      <label style={{ fontSize: '0.76rem', color: 'var(--muted)', display: 'block', marginBottom: 3 }}>
+                        {field.charAt(0).toUpperCase() + field.slice(1)}
+                        {csvModalMapping[field] ? (
+                          <span style={{ color: 'var(--accent)', marginLeft: 6 }}>✓</span>
+                        ) : CSV_REQUIRED.includes(field) ? (
+                          <span style={{ color: 'var(--danger)', marginLeft: 6 }}>required</span>
+                        ) : (
+                          <span style={{ color: 'var(--muted)', marginLeft: 6 }}>optional</span>
+                        )}
+                      </label>
+                      <select
+                        className="sidebar-input"
+                        style={{ marginBottom: 0 }}
+                        value={csvModalMapping[field] || ''}
+                        onChange={e => setCsvModalMapping(m => ({ ...m, [field]: e.target.value }))}
+                      >
+                        <option value="">-- select column --</option>
+                        {csvModalHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {csvModalError && (
+              <div style={{ color: 'var(--danger)', fontSize: '0.82rem', marginBottom: 12, padding: '8px 10px', background: 'rgba(239,68,68,0.08)', borderRadius: 6 }}>
+                {csvModalError}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
+              <button
+                className="upload-btn"
+                style={{ background: 'var(--input-bg)', color: 'var(--foreground)', border: '1px solid var(--card-border)' }}
+                onMouseDown={() => setCsvModal({ open: false })}
+              >Cancel</button>
+              <button
+                className="upload-btn"
+                onClick={submitCsvImport}
+                disabled={csvModalLoading || !csvModalFile}
+              >
+                {csvModalLoading
+                  ? <><span className="spinner spinner-sm spinner-white" style={{ marginRight: 6 }} />Importing…</>
+                  : 'Import'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {toastMsg && (
         <div style={{
