@@ -11,6 +11,7 @@ const PLATFORM_OPTIONS = {
   stocks: ["Opportunity Summary", "Entry / Exit Strategy", "Risk Assessment", "Earnings / News Impact", "Valuation Notes", "Custom Analysis"],
   social: ["Post Performance", "Content Strategy", "Audience Insights", "Competitor Analysis", "Engagement Analysis", "Custom Analysis"],
   ads:    ["Campaign Performance", "Ad Copy Review", "Keyword Strategy", "Budget Optimization", "Conversion Analysis", "Custom Analysis"],
+  ads_bp: ["Campaign Performance", "Ad Copy Review", "Keyword Strategy", "Budget Optimization", "Conversion Analysis", "Custom Analysis"],
 };
 
 const CHAT_CONFIG = {
@@ -23,6 +24,10 @@ const CHAT_CONFIG = {
     placeholder: "e.g., Which of my posts drove the most engagement last month?",
   },
   ads: {
+    heading:     "What Google Ads question or campaign do you want to analyze?",
+    placeholder: "e.g., Which campaigns had the best ROAS this quarter?",
+  },
+  ads_bp: {
     heading:     "What Google Ads question or campaign do you want to analyze?",
     placeholder: "e.g., Which campaigns had the best ROAS this quarter?",
   },
@@ -757,7 +762,7 @@ export default function Home() {
                     ))}
                   </select>
                 </div>
-                <div className="custom-select-wrapper" style={{ left: -42 }}>
+                <div className="custom-select-wrapper" style={{ left: -27 }}>
                   <FiDatabase className="select-icon" />
                   <select
                     value={sourceOption}
@@ -769,7 +774,7 @@ export default function Home() {
                     <option value="model">Use Only Model Knowledge</option>
                   </select>
                 </div>
-                <div className="custom-select-wrapper" style={{ left: -89 }}>
+                <div className="custom-select-wrapper" style={{ left: -65 }}>
                   <FiCpu className="select-icon" />
                   <select
                     value={geminiModel}

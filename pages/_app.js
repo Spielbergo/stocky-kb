@@ -3,7 +3,7 @@ import { createContext, useState, useEffect } from "react";
 
 export const ProfileContext = createContext({ profile: "stocks", setProfile: () => {} });
 
-const VALID_PROFILES = ["stocks", "social", "ads"];
+const VALID_PROFILES = ["stocks", "social", "ads", "ads_bp"];
 
 export default function App({ Component, pageProps }) {
   const [profile, setProfileState] = useState("stocks");

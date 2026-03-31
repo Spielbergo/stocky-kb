@@ -4,6 +4,7 @@ import AuthGate from '../components/AuthGate';
 import NavBar from '../components/NavBar';
 import ErrorBoundary from '../components/ErrorBoundary';
 import AppModal from '../components/ConfirmModal';
+import { sma, ema, bollingerBands } from '../lib/math';
 const Line = dynamic(() => import('react-chartjs-2').then(mod => mod.Line), { ssr: false });
 
 function formatDate(d) {
@@ -54,6 +55,14 @@ const METRICS = [
   { value: 'high',   label: 'High' },
   { value: 'low',    label: 'Low' },
   { value: 'volume', label: 'Volume' },
+];
+
+const INDICATORS = [
+  { id: 'sma20',  label: 'SMA 20',    color: '#f59e0b' },
+  { id: 'sma50',  label: 'SMA 50',    color: '#3b82f6' },
+  { id: 'sma200', label: 'SMA 200',   color: '#ef4444' },
+  { id: 'ema20',  label: 'EMA 20',    color: '#a855f7' },
+  { id: 'bb',     label: 'Bollinger', color: '#10b981' },
 ];
 
 export default function StocksPage() {
@@ -110,6 +119,27 @@ export default function StocksPage() {
   const [csvModalLoading, setCsvModalLoading] = useState(false);
   const [csvModalError, setCsvModalError]     = useState(null);
   const csvModalFileRef = useRef(null);
+
+  // ── Chart theme colours (resolved from CSS vars so Chart.js gets real hex values) ──
+  const [chartTheme, setChartTheme] = useState({ muted: '#a1a1aa', accent: '#16a34a', grid: 'rgba(128,128,128,0.12)' });
+
+  useEffect(() => {
+    const resolve = () => {
+      const style = getComputedStyle(document.documentElement);
+      const muted  = style.getPropertyValue('--muted').trim()  || '#a1a1aa';
+      const accent = style.getPropertyValue('--accent').trim() || '#16a34a';
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      setChartTheme({
+        muted,
+        accent,
+        grid: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)',
+      });
+    };
+    resolve();
+    const obs = new MutationObserver(resolve);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-profile'] });
+    return () => obs.disconnect();
+  }, []);
 
   // ── Ticker context menu ───────────────────────────────────────────────────────
   const [menuPos, setMenuPos] = useState(null); // { top, right } fixed position
@@ -425,27 +455,63 @@ export default function StocksPage() {
     return { last, high52, low52, vol30, years, points: series.length };
   }, [series]);
 
-  const chartData = useMemo(() => ({
-    labels: sampled.map(s => s.date),
-    datasets: [{
-      label: `${ticker} ${metric}`,
-      data:  sampled.map(s => s[metric]),
-      borderColor:     'var(--accent)',
-      backgroundColor: 'rgba(22,163,74,0.08)',
-      pointRadius: 0,
-      borderWidth: 1.5,
-    }],
-  }), [sampled, ticker, metric]);
+  // ── Indicator series ────────────────────────────────────────────────────────────
+  const indicatorSeries = useMemo(() => {
+    if (!sampled.length) return {};
+    const closes = sampled.map(s => s.close);
+    return {
+      sma20:  sma(closes, 20),
+      sma50:  sma(closes, 50),
+      sma200: sma(closes, 200),
+      ema20:  ema(closes, 20),
+      bb:     bollingerBands(closes, 20, 2),
+    };
+  }, [sampled]);
+
+  const chartData = useMemo(() => {
+    const indicatorDatasets = INDICATORS.flatMap(ind => {
+      if (!activeIndicators.has(ind.id)) return [];
+      const s = indicatorSeries[ind.id];
+      if (!s) return [];
+      if (ind.id === 'bb') {
+        return [
+          { label: 'BB Upper',  data: s.upper,  borderColor: ind.color,       backgroundColor: 'transparent', borderWidth: 1, borderDash: [4, 3], pointRadius: 0, spanGaps: false },
+          { label: 'BB Middle', data: s.middle, borderColor: ind.color + '88', backgroundColor: 'transparent', borderWidth: 1, borderDash: [2, 4], pointRadius: 0, spanGaps: false },
+          { label: 'BB Lower',  data: s.lower,  borderColor: ind.color,       backgroundColor: 'transparent', borderWidth: 1, borderDash: [4, 3], pointRadius: 0, spanGaps: false },
+        ];
+      }
+      return [{ label: ind.label, data: s, borderColor: ind.color, backgroundColor: 'transparent', borderWidth: 1.5, pointRadius: 0, spanGaps: false }];
+    });
+    return {
+      labels: sampled.map(s => s.date),
+      datasets: [
+        {
+          label: `${ticker} ${metric}`,
+          data:  sampled.map(s => s[metric]),
+          borderColor:     chartTheme.accent,
+          backgroundColor: chartTheme.accent + '18',
+          pointRadius: 0,
+          borderWidth: 1.5,
+        },
+        ...indicatorDatasets,
+      ],
+    };
+  }, [sampled, ticker, metric, chartTheme, activeIndicators, indicatorSeries]);
 
   const chartOptions = useMemo(() => ({
     responsive: true,
     maintainAspectRatio: false,
     scales: {
-      x: { type: 'time', time: { unit: 'day' }, grid: { color: 'rgba(128,128,128,0.1)' }, ticks: { color: 'var(--muted)' } },
-      y: { beginAtZero: false, grid: { color: 'rgba(128,128,128,0.1)' }, ticks: { color: 'var(--muted)' } },
+      x: { type: 'time', time: { unit: 'day' }, grid: { color: chartTheme.grid }, ticks: { color: chartTheme.muted } },
+      y: { beginAtZero: false, grid: { color: chartTheme.grid }, ticks: { color: chartTheme.muted } },
     },
-    plugins: { legend: { display: false } },
-  }), []);
+    plugins: {
+      legend: {
+        display: activeIndicators.size > 0,
+        labels: { color: chartTheme.muted, boxWidth: 20, padding: 12, font: { size: 11 } },
+      },
+    },
+  }), [chartTheme, activeIndicators]);
 
   // clamp page
   useEffect(() => {
@@ -838,6 +904,25 @@ export default function StocksPage() {
                     className="period-btn"
                     title="Download filtered data as CSV"
                   ><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: "middle", marginRight: 4 }}><path d="M12 5v14M5 12l7 7 7-7"/></svg> CSV</button>
+                </div>
+
+                {/* Indicators toggle row */}
+                <div className="chart-toolbar" style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--card-border)' }}>
+                  <div className="chart-toolbar-group">
+                    <span className="chart-toolbar-label">Indicators</span>
+                    <div className="period-btn-group" style={{ marginBottom: 0 }}>
+                      {INDICATORS.map(ind => (
+                        <button
+                          key={ind.id}
+                          className={`period-btn${activeIndicators.has(ind.id) ? ' active' : ''}`}
+                          onClick={() => toggleIndicator(ind.id)}
+                          style={activeIndicators.has(ind.id) ? { borderColor: ind.color, color: ind.color, background: ind.color + '18' } : {}}
+                        >
+                          {ind.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
 

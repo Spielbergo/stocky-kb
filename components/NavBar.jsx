@@ -28,6 +28,14 @@ const PROFILES = {
       { href: "/ads-accounts", label: "Accounts" },
     ],
   },
+  ads_bp: {
+    label: "Google Ads - Best Practices",
+    icon: "📋",
+    links: [
+      { href: "/", label: "Chat" },
+      { href: "/ads-accounts", label: "Accounts" },
+    ],
+  },
 };
 
 /** Pages that are shared across all profiles — never redirect away from these. */

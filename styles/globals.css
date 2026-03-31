@@ -60,6 +60,11 @@ li {
   --accent-hover: #1d4ed8;
 }
 
+[data-profile="ads_bp"] {
+  --accent: #0891b2;
+  --accent-hover: #0e7490;
+}
+
 /* ── Navbar ── */
 .navbar {
   position: sticky;
