@@ -20,6 +20,55 @@ export default function AdminDashboard() {
   const [status, setStatus]       = useState("");
   const [progress, setProgress]   = useState({ current: 0, total: 0 });
   const [bookTitle, setBookTitle] = useState("");
+  const [stripping, setStripping] = useState(false);    // true while pdf-lib is running
+  const [strippedInfo, setStrippedInfo] = useState(null); // { originalMB, strippedMB }
+
+  /** Strip all image XObjects from a PDF in the browser using pdf-lib.
+   *  Returns a new File with images removed, or the original if not a PDF / already small. */
+  const stripPdfImages = async (rawFile) => {
+    if (rawFile.type !== 'application/pdf') return rawFile;
+    setStripping(true);
+    setStrippedInfo(null);
+    try {
+      const { PDFDocument, PDFName } = await import('pdf-lib');
+      const arrayBuffer = await rawFile.arrayBuffer();
+      const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true, updateMetadata: false });
+
+      // Enumerate every indirect object in the file and zero out those with Subtype=Image.
+      // This reliably catches all embedded images regardless of where they sit in the page tree.
+      let imagesRemoved = 0;
+      for (const [, pdfObj] of pdfDoc.context.enumerateIndirectObjects()) {
+        try {
+          const dict = pdfObj.dict;
+          if (!dict) continue;
+          const subtype = dict.get(PDFName.of('Subtype'));
+          if (!subtype || subtype.toString() !== '/Image') continue;
+          // Replace image stream data with zero bytes
+          pdfObj.contents = new Uint8Array(0);
+          dict.set(PDFName.of('Length'), pdfDoc.context.obj(0));
+          dict.delete(PDFName.of('Filter'));
+          dict.delete(PDFName.of('DecodeParms'));
+          imagesRemoved++;
+        } catch { /* skip unresolvable objects */ }
+      }
+
+      const stripped = await pdfDoc.save();
+      const strippedFile = new File([stripped], rawFile.name, { type: 'application/pdf' });
+      const origMB     = (rawFile.size      / 1024 / 1024).toFixed(2);
+      const strippedMB = (strippedFile.size / 1024 / 1024).toFixed(2);
+      if (imagesRemoved > 0 && strippedFile.size < rawFile.size) {
+        setStrippedInfo({ originalMB: origMB, strippedMB, imagesRemoved });
+        return strippedFile;
+      }
+      setStrippedInfo({ originalMB: origMB, strippedMB: origMB, noChange: true });
+      return rawFile;
+    } catch (e) {
+      console.warn('pdf-lib strip failed, using original:', e);
+      return rawFile;
+    } finally {
+      setStripping(false);
+    }
+  };
 
   // Modal state
   const [modal, setModal] = useState({ open: false });
@@ -78,6 +127,10 @@ export default function AdminDashboard() {
       showAlert("Please select a file before uploading.", "No file selected");
       return;
     }
+    if (file.size > 4 * 1024 * 1024) {
+      showAlert(`"${file.name}" is ${(file.size / 1024 / 1024).toFixed(1)} MB. Please keep files under 4 MB — Vercel's request limit is 4.5 MB.`, "File too large");
+      return;
+    }
     setStatus("Uploading...");
     const formData = new FormData();
     formData.append("file", file);
@@ -101,7 +154,7 @@ export default function AdminDashboard() {
   };
 
   // Drag & drop
-  const handleDrop = useCallback((e) => {
+  const handleDrop = useCallback(async (e) => {
     e.preventDefault();
     const dropped = e.dataTransfer.files[0];
     if (!dropped) return;
@@ -109,7 +162,12 @@ export default function AdminDashboard() {
       showAlert("Please upload a .pdf or .txt file.", "Invalid file type");
       return;
     }
-    setFile(dropped);
+    const processed = await stripPdfImages(dropped);
+    if (processed.size > 4 * 1024 * 1024) {
+      showAlert(`"${processed.name}" is ${(processed.size / 1024 / 1024).toFixed(1)} MB even after stripping images. Please keep files under 4 MB — Vercel's request limit is 4.5 MB.`, "File too large");
+      return;
+    }
+    setFile(processed);
   }, []);
   const handleDragOver = (e) => e.preventDefault();
 
@@ -240,13 +298,36 @@ export default function AdminDashboard() {
                 <input
                   type="file"
                   accept=".txt,.pdf"
-                  onChange={(e) => setFile(e.target.files[0])}
+                  onChange={async (e) => {
+                    const f = e.target.files[0];
+                    if (!f) return;
+                    const processed = await stripPdfImages(f);
+                    if (processed.size > 4 * 1024 * 1024) {
+                      showAlert(`"${processed.name}" is ${(processed.size / 1024 / 1024).toFixed(1)} MB even after stripping images. Please keep files under 4 MB — Vercel's request limit is 4.5 MB.`, "File too large");
+                      e.target.value = '';
+                      return;
+                    }
+                    setFile(processed);
+                  }}
                   style={{ display: "none" }}
                 />
                 {file ? (
                   <>
                     <span className="upload-file-icon">📄</span>
                     <span className="upload-filename">{file.name}</span>
+                    {stripping && (
+                      <span style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: 2 }}>
+                        <span className="spinner spinner-sm" style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                        Stripping images…
+                      </span>
+                    )}
+                    {strippedInfo && !stripping && (
+                      <span style={{ fontSize: '0.72rem', color: strippedInfo.noChange ? 'var(--muted)' : 'var(--accent)', marginTop: 2 }}>
+                        {strippedInfo.noChange
+                          ? `${strippedInfo.originalMB} MB (no images found)`
+                          : `${strippedInfo.originalMB} MB → ${strippedInfo.strippedMB} MB (${strippedInfo.imagesRemoved} image${strippedInfo.imagesRemoved !== 1 ? 's' : ''} removed)`}
+                      </span>
+                    )}
                   </>
                 ) : (
                   <>
@@ -289,7 +370,7 @@ export default function AdminDashboard() {
                   ) : (
                     <>
                       <span className="sidebar-item-icon">📖</span>
-                      <span className="sidebar-item-label">{book.bookTitle}</span>
+                      <span className="sidebar-item-label" title={book.bookTitle}>{book.bookTitle}</span>
                       <span className="sidebar-item-meta">{book.count}</span>
                       <button
                         className="icon-btn danger"
@@ -320,7 +401,7 @@ export default function AdminDashboard() {
                   className={`sidebar-item${selectedPlan?.id === plan.id ? " active" : ""}`}
                   onClick={() => { setSelectedPlan(plan); setSelectedBook(null); }}
                 >
-                  <span className="sidebar-item-label">{plan.title}</span>
+                  <span className="sidebar-item-label" title={plan.title}>{plan.title}</span>
                   <div className="sidebar-item-actions">
                     <button className="icon-btn" onClick={(e) => { e.stopPropagation(); handleCopyPlan(plan.content); }} title="Copy">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
