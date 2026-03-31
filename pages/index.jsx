@@ -7,10 +7,31 @@ import AppModal from '../components/ConfirmModal';
 import { FiLayers, FiDatabase, FiCpu } from "react-icons/fi";
 import { FiCopy, FiEdit2 } from "react-icons/fi";
 
+const PLATFORM_OPTIONS = {
+  stocks: ["Opportunity Summary", "Entry / Exit Strategy", "Risk Assessment", "Earnings / News Impact", "Valuation Notes", "Custom Analysis"],
+  social: ["Post Performance", "Content Strategy", "Audience Insights", "Competitor Analysis", "Engagement Analysis", "Custom Analysis"],
+  ads:    ["Campaign Performance", "Ad Copy Review", "Keyword Strategy", "Budget Optimization", "Conversion Analysis", "Custom Analysis"],
+};
+
+const CHAT_CONFIG = {
+  stocks: {
+    heading:     "What stock question or opportunity do you want to explore?",
+    placeholder: "e.g., How did AAPL perform over the last month? Any interesting patterns?",
+  },
+  social: {
+    heading:     "What social media question or strategy do you want to explore?",
+    placeholder: "e.g., Which of my posts drove the most engagement last month?",
+  },
+  ads: {
+    heading:     "What Google Ads question or campaign do you want to analyze?",
+    placeholder: "e.g., Which campaigns had the best ROAS this quarter?",
+  },
+};
 
 export default function Home() {
   const { profile } = useContext(ProfileContext);
-  const [platform, setPlatform] = useState("Opportunity Type");
+  const [platform, setPlatform] = useState(() => PLATFORM_OPTIONS[profile]?.[0] ?? PLATFORM_OPTIONS.stocks[0]);
+  const [includeHistorical, setIncludeHistorical] = useState(true);
   const [userPrompt, setUserPrompt] = useState("");
   const [sourceOption, setSourceOption] = useState("mydata");
   const [geminiModel, setGeminiModel] = useState("gemini-2.5-flash-lite");
@@ -52,6 +73,8 @@ export default function Home() {
 
   // Load chats for the active profile; reset state on profile switch
   useEffect(() => {
+    // Reset platform dropdown to first option for this profile
+    setPlatform(PLATFORM_OPTIONS[profile]?.[0] ?? PLATFORM_OPTIONS.stocks[0]);
     // Cancel any in-flight debounced saves from the previous profile
     Object.values(pendingSavesRef.current).forEach(t => clearTimeout(t));
     pendingSavesRef.current = {};
@@ -186,7 +209,7 @@ export default function Home() {
 
     // If we have user data enabled, fetch a short stock summary to include in the prompt
     let stockContext = null;
-    if (sourceOption !== "model") {
+    if (sourceOption !== "model" && (profile !== 'stocks' || includeHistorical)) {
       try {
         const sres = await fetch('/api/stock-summary');
         if (sres.ok) {
@@ -702,13 +725,13 @@ export default function Home() {
               fontWeight: 400,
             }}
           >
-            What stock question or opportunity do you want to explore?
+            {(CHAT_CONFIG[profile] ?? CHAT_CONFIG.stocks).heading}
           </h1>
           <div className="input-container">
             <label>
               <textarea
                 style={{ width: "96%", marginTop: "6px", marginBottom: "0",  resize: "vertical" }}
-                placeholder="e.g., How did AAPL perform over the last month? Any interesting patterns?"
+                placeholder={(CHAT_CONFIG[profile] ?? CHAT_CONFIG.stocks).placeholder}
                 rows={1}
                 value={userPrompt}
                 onChange={(e) => setUserPrompt(e.target.value)}
@@ -729,12 +752,9 @@ export default function Home() {
                     onChange={(e) => setPlatform(e.target.value)}
                     className="custom-select"
                   >
-                    <option>Opportunity Summary</option>
-                    <option>Entry / Exit Strategy</option>
-                    <option>Risk Assessment</option>
-                    <option>Earnings / News Impact</option>
-                    <option>Valuation Notes</option>
-                    <option>Custom Analysis</option>
+                    {(PLATFORM_OPTIONS[profile] ?? PLATFORM_OPTIONS.stocks).map(opt => (
+                      <option key={opt}>{opt}</option>
+                    ))}
                   </select>
                 </div>
                 <div className="custom-select-wrapper" style={{ left: -42 }}>
@@ -769,12 +789,13 @@ export default function Home() {
                   </select>
                 </div>
               </div>
-              <button
-                onClick={handleGenerate}
-                disabled={loading}
-                className="generate-btn"
-                aria-label="Analyze Stock Opportunity"
-              >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button
+                  onClick={handleGenerate}
+                  disabled={loading}
+                  className="generate-btn"
+                  aria-label="Analyze"
+                >
                 {loading ? (
                   <span className="arrow-loader" />
                 ) : (
@@ -796,9 +817,21 @@ export default function Home() {
                     />
                   </svg>
                 )}
-              </button>
+                </button>
+              </div>
             </div>
           </div>
+          {profile === 'stocks' && (
+            <label style={{ position: 'relative', left: 20, display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.78rem', color: 'var(--muted)', cursor: 'pointer', userSelect: 'none', marginTop: 8 }}>
+              <input
+                type="checkbox"
+                checked={includeHistorical}
+                onChange={e => setIncludeHistorical(e.target.checked)}
+                style={{ cursor: 'pointer' }}
+              />
+              Include historical data
+            </label>
+          )}
         </div>
 
         {/* Toast */}

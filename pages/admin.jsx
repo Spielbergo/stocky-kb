@@ -31,6 +31,7 @@ export default function AdminDashboard() {
 
   // Dashboard state
   const [books, setBooks]             = useState([]);
+  const [booksLoading, setBooksLoading] = useState(true);
   const [plans, setPlans]             = useState([]);
   const [selectedBook, setSelectedBook] = useState(null);
   const [removingBook, setRemovingBook] = useState(null);
@@ -41,10 +42,12 @@ export default function AdminDashboard() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
+    setBooksLoading(true);
     fetch(`/api/books?profile=${profile}`)
       .then((res) => res.json())
       .then((data) => setBooks(Array.isArray(data) ? data : []))
-      .catch(() => setBooks([]));
+      .catch(() => setBooks([]))
+      .finally(() => setBooksLoading(false));
     fetch("/api/plans")
       .then((res) => res.json())
       .then((data) => setPlans(Array.isArray(data) ? data : []))
@@ -264,10 +267,15 @@ export default function AdminDashboard() {
           {/* Books list */}
           <div className="sidebar-section sidebar-list-section">
             <h3 className="sidebar-section-title">
-              Books <span className="count-badge">{books.length}</span>
+              Books {!booksLoading && <span className="count-badge">{books.length}</span>}
             </h3>
             <ul className="sidebar-list">
-              {books.map((book) => (
+              {booksLoading && (
+                <li className="sidebar-empty" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <span className="spinner spinner-sm" /> Loading…
+                </li>
+              )}
+              {!booksLoading && books.map((book) => (
                 <li
                   key={book.bookTitle}
                   className={`sidebar-item${selectedBook?.bookTitle === book.bookTitle ? " active" : ""}${removingBook === book.bookTitle ? " sidebar-item-removing" : ""}`}
@@ -296,7 +304,7 @@ export default function AdminDashboard() {
                   )}
                 </li>
               ))}
-              {books.length === 0 && <li className="sidebar-empty">No books for this profile yet</li>}
+              {!booksLoading && books.length === 0 && <li className="sidebar-empty">No books for this profile yet</li>}
             </ul>
           </div>
 

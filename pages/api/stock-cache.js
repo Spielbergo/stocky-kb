@@ -14,25 +14,10 @@ export default async function handler(req, res) {
         start_date: doc.data().start_date ?? null,
         end_date:   doc.data().end_date   ?? null,
         updated_at: doc.data().updated_at ?? null,
-        data:       doc.data().data       ?? null,
+        // note: we deliberately omit the `data` (OHLCV rows) field here — it can be
+        // hundreds of KB per ticker and is not needed for the sidebar list.
+        company_name: doc.data().notes    ?? null,
       }));
-
-      // Optionally enrich with company name from Finnhub if available
-      const fhKey = process.env.FINNHUB_API_KEY;
-      if (fhKey && data.length > 0) {
-        const enriched = await Promise.all(data.map(async (row) => {
-          try {
-            const url = `https://finnhub.io/api/v1/stock/profile2?symbol=${encodeURIComponent(row.ticker)}&token=${encodeURIComponent(fhKey)}`;
-            const r = await fetch(url);
-            if (!r.ok) return { ...row, company_name: null };
-            const j = await r.json();
-            return { ...row, company_name: j.name || null };
-          } catch {
-            return { ...row, company_name: null };
-          }
-        }));
-        return res.status(200).json({ data: enriched });
-      }
 
       return res.status(200).json({ data });
     } catch (e) {

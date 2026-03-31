@@ -98,10 +98,23 @@ export default function StocksPage() {
   const [toastMsg, setToastMsg] = useState('');
   const toast = (msg) => { setToastMsg(msg); setTimeout(() => setToastMsg(''), 2500); };
 
-  // ── CSV Import ────────────────────────────────────────────────────────────────
-  const [importTicker, setImportTicker] = useState('');
-  const [importLoading, setImportLoading] = useState(false);
-  const csvFileRef = useRef(null);
+  // ── CSV Import modal ──────────────────────────────────────────────────────────
+  const [csvModal, setCsvModal]               = useState({ open: false });
+  const [csvModalTicker, setCsvModalTicker]   = useState('');
+  const [csvModalFile, setCsvModalFile]       = useState(null);
+  const [csvModalHeaders, setCsvModalHeaders] = useState([]);
+  const [csvModalMapping, setCsvModalMapping] = useState({});
+  const [csvModalLoading, setCsvModalLoading] = useState(false);
+  const [csvModalError, setCsvModalError]     = useState(null);
+  const csvModalFileRef = useRef(null);
+
+  // ── Ticker context menu ───────────────────────────────────────────────────────
+  const [menuPos, setMenuPos] = useState(null); // { top, right } fixed position
+
+  // ── In-memory ticker data cache (survives within this page session) ───────────
+  // Keyed by ticker symbol. Holds { history, stockMeta } so switching between
+  // previously-loaded tickers is instant with zero API calls.
+  const tickerDataCache = useRef(new Map());
 
   // â”€â”€ Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [modal, setModal]               = useState({ open: false });
@@ -177,13 +190,17 @@ export default function StocksPage() {
       const res  = await fetch(`/api/stock-history?${params}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to fetch');
-      setHistory(data.data || []);
-      setStockMeta({
+      const historyRows = data.data || [];
+      const meta = {
         startDate:  data.startDate,
         endDate:    data.endDate,
         cached:     data.cached,
         updated_at: data.updated_at,
-      });
+      };
+      // Store in session memory so switching back to this ticker is instant
+      tickerDataCache.current.set(t.toUpperCase(), { history: historyRows, stockMeta: meta });
+      setHistory(historyRows);
+      setStockMeta(meta);
       setActiveTicker(t);
       setPage(1);
       await fetchCachedList();
@@ -209,28 +226,70 @@ export default function StocksPage() {
     URL.revokeObjectURL(a.href);
   };
 
-  // ── Import CSV ────────────────────────────────────────────────────────────────
-  const importCSV = async (file) => {
-    const t = importTicker.trim().toUpperCase() || ticker;
-    if (!t) { showAlert('Enter a ticker symbol before importing.', 'Ticker Required'); return; }
-    if (!file) return;
-    setImportLoading(true);
+  // ── CSV Import modal handlers ─────────────────────────────────────────────────
+  const REQUIRED_FIELDS = ['date','open','high','low','close','volume'];
+
+  const handleCsvModalFile = async (file) => {
+    setCsvModalFile(file);
+    const text = await file.text();
+    const firstLine = text.split('\n')[0];
+    const headers = firstLine.split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+    setCsvModalHeaders(headers);
+    const fieldAliases = {
+      date:   ['date','time','timestamp','Date','Time','Timestamp'],
+      open:   ['open','open_price','Open'],
+      high:   ['high','high_price','High'],
+      low:    ['low','low_price','Low'],
+      close:  ['close','close_price','adj close','adj_close','Close','Adj Close'],
+      volume: ['volume','vol','Volume','Vol'],
+    };
+    const autoMap = {};
+    for (const [field, aliases] of Object.entries(fieldAliases)) {
+      const match = headers.find(h => aliases.some(a => a.toLowerCase() === h.toLowerCase().trim()));
+      if (match) autoMap[field] = match;
+    }
+    setCsvModalMapping(autoMap);
+  };
+
+  const submitCsvImport = async () => {
+    const t = csvModalTicker.trim().toUpperCase() || ticker;
+    if (!t) { setCsvModalError('Enter a ticker symbol.'); return; }
+    if (!csvModalFile) { setCsvModalError('Select a CSV file.'); return; }
+    const unmapped = REQUIRED_FIELDS.filter(f => !csvModalMapping[f]);
+    if (unmapped.length) { setCsvModalError(`Map all required fields. Missing: ${unmapped.join(', ')}`); return; }
+    setCsvModalLoading(true);
+    setCsvModalError(null);
     try {
-      const text = await file.text();
-      const res  = await fetch('/api/stock-import', {
+      const rawText = await csvModalFile.text();
+      const lines = rawText.split('\n').filter(l => l.trim());
+      const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+      const rows = lines.slice(1).map(line => {
+        const cols = line.split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+        const row = {};
+        for (const field of REQUIRED_FIELDS) {
+          const idx = headers.indexOf(csvModalMapping[field]);
+          row[field] = idx >= 0 ? cols[idx] : '';
+        }
+        return row;
+      });
+      const standardCsv = [
+        'date,open,high,low,close,volume',
+        ...rows.map(r => `${r.date},${r.open},${r.high},${r.low},${r.close},${r.volume}`),
+      ].join('\n');
+      const res = await fetch('/api/stock-import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticker: t, csv: text }),
+        body: JSON.stringify({ ticker: t, csv: standardCsv }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Import failed');
       toast(`Imported ${json.imported} rows for ${json.ticker}${json.skipped ? ` (${json.skipped} skipped)` : ''}`);
+      setCsvModal({ open: false });
       await fetchCachedList();
-      if (csvFileRef.current) csvFileRef.current.value = '';
     } catch (e) {
-      showAlert(e.message, 'Import Failed');
+      setCsvModalError(e.message);
     } finally {
-      setImportLoading(false);
+      setCsvModalLoading(false);
     }
   };
 
@@ -369,6 +428,14 @@ export default function StocksPage() {
     if (page > total) setPage(total);
   }, [filteredSeries.length, pageSize]);
 
+  // close ticker context menu on outside click
+  useEffect(() => {
+    if (!activeMenuTicker) return;
+    const handler = () => { setActiveMenuTicker(null); setMenuPos(null); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [activeMenuTicker]);
+
   // â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   return (
     <ErrorBoundary>
@@ -380,12 +447,30 @@ export default function StocksPage() {
         <aside className="admin-sidebar">
 
           {/* Header badge */}
-          <div className="sidebar-profile-badge">
-            <div className="sidebar-profile-icon">ðŸ“ˆ</div>
-            <div>
-              <div className="sidebar-profile-label">Markets</div>
-              <div className="sidebar-profile-sub">Stock History</div>
+          <div className="sidebar-profile-badge" style={{ justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div className="sidebar-profile-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" /></svg></div>
+              <div>
+                <div className="sidebar-profile-label">Markets</div>
+                <div className="sidebar-profile-sub">Stock History</div>
+              </div>
             </div>
+            <button
+              onClick={() => {
+                setCsvModal({ open: true });
+                setCsvModalTicker('');
+                setCsvModalFile(null);
+                setCsvModalHeaders([]);
+                setCsvModalMapping({});
+                setCsvModalError(null);
+                if (csvModalFileRef.current) csvModalFileRef.current.value = '';
+              }}
+              title="Import CSV"
+              style={{ background: 'var(--input-bg)', border: '1px solid var(--card-border)', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.76rem', flexShrink: 0 }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              Import
+            </button>
           </div>
 
           {/* Fetch section */}
@@ -478,42 +563,6 @@ export default function StocksPage() {
             </button>
           </div>
 
-          {/* Import CSV section */}
-          <div className="sidebar-section">
-            <h3 className="sidebar-section-title">Import CSV</h3>
-            <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginBottom: 8, lineHeight: 1.4 }}>
-              Upload a CSV with columns: <code style={{ background: 'var(--input-bg)', padding: '1px 4px', borderRadius: 3 }}>date, open, high, low, close, volume</code>
-            </div>
-            <input
-              className="sidebar-input"
-              style={{ marginBottom: 6 }}
-              placeholder="Ticker (e.g. AAPL)"
-              value={importTicker}
-              onChange={e => setImportTicker(e.target.value.toUpperCase())}
-            />
-            <label
-              htmlFor="csv-file-input"
-              className="upload-btn"
-              style={{
-                display: 'block', textAlign: 'center', cursor: importLoading ? 'not-allowed' : 'pointer',
-                opacity: importLoading ? 0.6 : 1,
-              }}
-            >
-              {importLoading ? (
-                <><span className="spinner spinner-sm spinner-white" style={{ marginRight: 6 }} />Importing…</>
-              ) : '↑ Choose CSV File'}
-            </label>
-            <input
-              id="csv-file-input"
-              ref={csvFileRef}
-              type="file"
-              accept=".csv,text/csv"
-              style={{ display: 'none' }}
-              disabled={importLoading}
-              onChange={e => { const f = e.target.files?.[0]; if (f) importCSV(f); }}
-            />
-          </div>
-
           {/* Cached tickers list */}
           <div className="sidebar-section sidebar-list-section" style={{ flex: 1 }}>
             <h3 className="sidebar-section-title">
@@ -536,7 +585,21 @@ export default function StocksPage() {
                     key={c.ticker}
                     className={`sidebar-item${isActive ? ' active' : ''}`}
                     style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2, position: 'relative', paddingRight: 28 }}
-                    onClick={() => fetchHistory(c.ticker, fetchPeriod)}
+                    onClick={() => {
+                      const mem = tickerDataCache.current.get(c.ticker.toUpperCase());
+                      if (mem) {
+                        // Already loaded this session — instant switch, no API call
+                        setHistory(mem.history);
+                        setStockMeta(mem.stockMeta);
+                        setActiveTicker(c.ticker);
+                        setTicker(c.ticker);
+                        setQuery('');
+                        setPage(1);
+                        setError(null);
+                      } else {
+                        fetchHistory(c.ticker, fetchPeriod);
+                      }
+                    }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
                       <span className="sidebar-item-label" style={{ fontWeight: 700 }}>
@@ -549,51 +612,26 @@ export default function StocksPage() {
                     )}
                     {c.start_date && c.end_date && (
                       <div className="stock-cache-meta">
-                        {fmtMonthYear(c.start_date)} â€“ {fmtMonthYear(c.end_date)}
+                        {fmtMonthYear(c.start_date)} "“ {fmtMonthYear(c.end_date)}
                       </div>
                     )}
 
-                    {/* â‹¯ menu */}
+                    {/* options menu */}
                     <button
                       style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 16, padding: '2px 4px', lineHeight: 1 }}
-                      onClick={e => { e.stopPropagation(); setActiveMenuTicker(activeMenuTicker === c.ticker ? null : c.ticker); }}
+                      onMouseDown={e => {
+                        e.stopPropagation();
+                        if (activeMenuTicker === c.ticker) {
+                          setActiveMenuTicker(null);
+                          setMenuPos(null);
+                        } else {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                          setActiveMenuTicker(c.ticker);
+                        }
+                      }}
                       title="Options"
-                    >â‹¯</button>
-                    {activeMenuTicker === c.ticker && (
-                      <div
-                        onClick={e => e.stopPropagation()}
-                        style={{
-                          position: 'absolute', right: 0, top: 'calc(100% + 2px)',
-                          background: 'var(--card-bg)', border: '1px solid var(--card-border)',
-                          borderRadius: 8, boxShadow: 'var(--shadow)', zIndex: 80,
-                          minWidth: 140, overflow: 'hidden',
-                        }}
-                      >
-                        <div style={{ fontWeight: 700, fontSize: '0.78rem', padding: '7px 10px', borderBottom: '1px solid var(--card-border)', color: 'var(--foreground)' }}>{c.ticker}</div>
-                        <button style={{ display: 'block', width: '100%', padding: '8px 10px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--foreground)', cursor: 'pointer', fontSize: '0.8rem' }}
-                          onClick={() => handleRenameTicker(c.ticker)}>Rename</button>
-                        <button style={{ display: 'block', width: '100%', padding: '8px 10px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: '0.8rem' }}
-                          onClick={() => {
-                            setActiveMenuTicker(null);
-                            showConfirm(
-                              `This will remove ${c.ticker} and all its cached data.`,
-                              async () => {
-                                closeModal();
-                                try {
-                                  const res = await fetch(`/api/stock-cache?ticker=${encodeURIComponent(c.ticker)}`, { method: 'DELETE' });
-                                  if (!res.ok) throw new Error('Delete failed');
-                                  if (activeTicker === c.ticker) { setHistory([]); setStockMeta(null); setActiveTicker(null); }
-                                  await fetchCachedList();
-                                  toast(`Deleted ${c.ticker}`);
-                                } catch (e) {
-                                  toast(`Failed to delete ${c.ticker}`);
-                                }
-                              },
-                              `Delete ${c.ticker}?`
-                            );
-                          }}>Delete</button>
-                      </div>
-                    )}
+                    ><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
                   </li>
                 );
               })}
@@ -640,7 +678,7 @@ export default function StocksPage() {
                 <div className="stock-stat-item">
                   <div className="stock-stat-label">Last Open</div>
                   <div className="stock-stat-value">${formatNumber(stats.last.open)}</div>
-                  <div className="stock-stat-sub">Hi ${formatNumber(stats.last.high)} Â· Lo ${formatNumber(stats.last.low)}</div>
+                  <div className="stock-stat-sub">Hi ${formatNumber(stats.last.high)} · Lo ${formatNumber(stats.last.low)}</div>
                 </div>
                 {stats.high52 && (
                   <div className="stock-stat-item">
@@ -670,15 +708,15 @@ export default function StocksPage() {
 
           {!history.length && !loading && !error && (
             <div className="admin-empty-state">
-              <span>ðŸ“Š</span>
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="12" width="4" height="9"/><rect x="10" y="7" width="4" height="14"/><rect x="17" y="3" width="4" height="18"/></svg>
               <p>Select a ticker and period, then click Fetch History</p>
             </div>
           )}
 
           {loading && (
             <div className="admin-empty-state">
-              <span style={{ fontSize: '1.5rem' }}>â³</span>
-              <p>Fetching dataâ€¦ large ranges are split into chunks with pauses to avoid rate limits. This may take up to 30 seconds.</p>
+              <span className="spinner" style={{ width: 28, height: 28, display: "block", margin: "0 auto" }} />
+              <p>Fetching data… large ranges are split into chunks with pauses to avoid rate limits. This may take up to 30 seconds.</p>
             </div>
           )}
 
@@ -695,7 +733,7 @@ export default function StocksPage() {
                       <div style={{ fontSize: '0.82rem' }}>{chartError}</div>
                     </div>
                   ) : (
-                    <div style={{ color: 'var(--muted)', padding: 24 }}>Loading chartâ€¦</div>
+                    <div style={{ color: 'var(--muted)', padding: 24 }}>Loading chart…</div>
                   )}
                 </div>
 
@@ -735,7 +773,7 @@ export default function StocksPage() {
                     onClick={downloadCSV}
                     className="period-btn"
                     title="Download filtered data as CSV"
-                  >â¬‡ CSV</button>
+                  ><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: "middle", marginRight: 4 }}><path d="M12 5v14M5 12l7 7 7-7"/></svg> CSV</button>
                 </div>
               </div>
 
@@ -763,7 +801,7 @@ export default function StocksPage() {
                     <tr>
                       {[['date','Date'],['open','Open'],['high','High'],['low','Low'],['close','Close'],['volume','Volume']].map(([k, lbl]) => (
                         <th key={k} onClick={() => { setSortBy(k); setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }}>
-                          {lbl} {sortBy === k ? (sortDir === 'asc' ? 'â–²' : 'â–¼') : ''}
+                          {lbl} {sortBy === k ? (sortDir === 'asc' ? '▲' : '▼') : ''}
                         </th>
                       ))}
                     </tr>
@@ -788,9 +826,9 @@ export default function StocksPage() {
                 </table>
 
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12 }}>
-                  <button className="period-btn" onClick={() => setPage(p => Math.max(1, p-1))} disabled={page === 1}>â€¹ Prev</button>
+                  <button className="period-btn" onClick={() => setPage(p => Math.max(1, p-1))} disabled={page === 1}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg> Prev</button>
                   <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Page {page} / {Math.max(1, Math.ceil(filteredSeries.length / pageSize))}</span>
-                  <button className="period-btn" onClick={() => setPage(p => Math.min(Math.ceil(filteredSeries.length / pageSize), p+1))} disabled={page * pageSize >= filteredSeries.length}>Next â€º</button>
+                  <button className="period-btn" onClick={() => setPage(p => Math.min(Math.ceil(filteredSeries.length / pageSize), p+1))} disabled={page * pageSize >= filteredSeries.length}>Next <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
                 </div>
               </div>
             </>
@@ -813,6 +851,181 @@ export default function StocksPage() {
           borderRadius: 9, boxShadow: 'var(--shadow)', zIndex: 2000, fontSize: '0.85rem',
         }}>
           {toastMsg}
+        </div>
+      )}
+
+      {/* ── Ticker context menu (fixed, escapes sidebar overflow) ── */}
+      {activeMenuTicker && menuPos && (() => {
+        const mc = cachedList.find(x => x.ticker === activeMenuTicker);
+        if (!mc) return null;
+        return (
+          <div
+            onMouseDown={e => e.stopPropagation()}
+            style={{
+              position: 'fixed', top: menuPos.top, right: menuPos.right,
+              background: 'var(--card-bg)', border: '1px solid var(--card-border)',
+              borderRadius: 8, boxShadow: 'var(--shadow)', zIndex: 1200,
+              minWidth: 150, overflow: 'hidden',
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: '0.78rem', padding: '7px 10px', borderBottom: '1px solid var(--card-border)', color: 'var(--foreground)' }}>{mc.ticker}</div>
+            <button
+              style={{ display: 'block', width: '100%', padding: '8px 10px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--foreground)', cursor: 'pointer', fontSize: '0.8rem' }}
+              onMouseDown={() => { setActiveMenuTicker(null); setMenuPos(null); handleRenameTicker(mc.ticker); }}
+            >Rename</button>
+            <button
+              style={{ display: 'block', width: '100%', padding: '8px 10px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: '0.8rem' }}
+              onMouseDown={() => {
+                setActiveMenuTicker(null);
+                setMenuPos(null);
+                showConfirm(
+                  `This will remove ${mc.ticker} and all its cached data.`,
+                  async () => {
+                    closeModal();
+                    try {
+                      const res = await fetch(`/api/stock-cache?ticker=${encodeURIComponent(mc.ticker)}`, { method: 'DELETE' });
+                      if (!res.ok) throw new Error('Delete failed');
+                      if (activeTicker === mc.ticker) { setHistory([]); setStockMeta(null); setActiveTicker(null); }
+                      await fetchCachedList();
+                      toast(`Deleted ${mc.ticker}`);
+                    } catch (e) {
+                      toast(`Failed to delete ${mc.ticker}`);
+                    }
+                  },
+                  `Delete ${mc.ticker}?`
+                );
+              }}
+            >Delete</button>
+          </div>
+        );
+      })()}
+
+      {/* ── CSV Import modal ── */}
+      {csvModal.open && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onMouseDown={e => { if (e.target === e.currentTarget) setCsvModal({ open: false }); }}
+        >
+          <div style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 12, padding: '22px 24px', width: 500, maxWidth: '92vw', maxHeight: '85vh', overflowY: 'auto', boxShadow: 'var(--shadow)' }}>
+
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+              <h3 style={{ margin: 0, fontSize: '1rem' }}>Import CSV</h3>
+              <button onMouseDown={() => setCsvModal({ open: false })} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 20, lineHeight: 1, padding: '2px 6px' }}>×</button>
+            </div>
+
+            {/* Ticker */}
+            <label style={{ fontSize: '0.8rem', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Ticker Symbol</label>
+            <input
+              className="sidebar-input"
+              placeholder="e.g. AAPL"
+              value={csvModalTicker}
+              onChange={e => setCsvModalTicker(e.target.value.toUpperCase())}
+              style={{ marginBottom: 14 }}
+            />
+
+            {/* Drop zone */}
+            <label style={{ fontSize: '0.8rem', color: 'var(--muted)', display: 'block', marginBottom: 6 }}>CSV File</label>
+            <label
+              htmlFor="csv-modal-file"
+              onDragOver={e => { e.preventDefault(); e.currentTarget.setAttribute('data-drag', 'true'); }}
+              onDragLeave={e => e.currentTarget.removeAttribute('data-drag')}
+              onDrop={e => {
+                e.preventDefault();
+                e.currentTarget.removeAttribute('data-drag');
+                const f = e.dataTransfer.files?.[0];
+                if (f) handleCsvModalFile(f);
+              }}
+              style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                gap: 8, marginBottom: 14, cursor: 'pointer', padding: '22px 16px',
+                border: '2px dashed var(--card-border)', borderRadius: 10,
+                background: 'var(--input-bg)', transition: 'border-color 0.15s, background 0.15s',
+                textAlign: 'center',
+              }}
+            >
+              {csvModalFile ? (
+                <>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--foreground)' }}>{csvModalFile.name}</span>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>
+                    {(csvModalFile.size / 1024).toFixed(1)} KB &nbsp;·&nbsp; click to change
+                  </span>
+                </>
+              ) : (
+                <>
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Drop CSV here</span>
+                  <span style={{ fontSize: '0.74rem', color: 'var(--muted)' }}>or click to browse</span>
+                </>
+              )}
+            </label>
+            <input
+              id="csv-modal-file"
+              ref={csvModalFileRef}
+              type="file"
+              accept=".csv,text/csv"
+              style={{ display: 'none' }}
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleCsvModalFile(f); }}
+            />
+
+            {/* Field mapping */}
+            {csvModalHeaders.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 6 }}>Column Mapping</div>
+                <div style={{ fontSize: '0.74rem', color: 'var(--muted)', marginBottom: 10 }}>
+                  Map each required field to the matching column in your CSV.
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 14px' }}>
+                  {REQUIRED_FIELDS.map(field => (
+                    <div key={field}>
+                      <label style={{ fontSize: '0.76rem', color: 'var(--muted)', display: 'block', marginBottom: 3 }}>
+                        {field.charAt(0).toUpperCase() + field.slice(1)}
+                        {csvModalMapping[field] ? (
+                          <span style={{ color: 'var(--accent)', marginLeft: 6 }}>✓</span>
+                        ) : (
+                          <span style={{ color: 'var(--danger)', marginLeft: 6 }}>required</span>
+                        )}
+                      </label>
+                      <select
+                        className="sidebar-input"
+                        style={{ marginBottom: 0 }}
+                        value={csvModalMapping[field] || ''}
+                        onChange={e => setCsvModalMapping(m => ({ ...m, [field]: e.target.value }))}
+                      >
+                        <option value="">-- select column --</option>
+                        {csvModalHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {csvModalError && (
+              <div style={{ color: 'var(--danger)', fontSize: '0.82rem', marginBottom: 12, padding: '8px 10px', background: 'rgba(239,68,68,0.08)', borderRadius: 6 }}>
+                {csvModalError}
+              </div>
+            )}
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
+              <button
+                className="upload-btn"
+                style={{ background: 'var(--input-bg)', color: 'var(--foreground)', border: '1px solid var(--card-border)' }}
+                onMouseDown={() => setCsvModal({ open: false })}
+              >Cancel</button>
+              <button
+                className="upload-btn"
+                onClick={submitCsvImport}
+                disabled={csvModalLoading || !csvModalFile}
+              >
+                {csvModalLoading
+                  ? <><span className="spinner spinner-sm spinner-white" style={{ marginRight: 6 }} />Importing…</>
+                  : 'Import'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </AuthGate>
