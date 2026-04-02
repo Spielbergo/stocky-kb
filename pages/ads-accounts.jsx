@@ -231,25 +231,26 @@ export default function AdsAccountsPage() {
           {/* ── Sidebar ── */}
           <aside className="admin-sidebar">
 
-            <div className="sidebar-profile-badge">
-              <div className="sidebar-profile-icon">📊</div>
-              <div>
-                <div className="sidebar-profile-label">Google Ads</div>
-                <div className="sidebar-profile-sub">Account Manager</div>
+            <div className="sidebar-profile-badge" style={{ justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div className="sidebar-profile-icon">📊</div>
+                <div>
+                  <div className="sidebar-profile-label">Google Ads</div>
+                  <div className="sidebar-profile-sub">Account Manager</div>
+                </div>
               </div>
+              <button
+                onClick={() => { setCsvModal({ open: true }); setCsvModalError(null); setCsvModalFile(null); setCsvModalHeaders([]); setCsvModalMapping({}); }}
+                title="Import CSV"
+                style={{ background: 'var(--input-bg)', border: '1px solid var(--card-border)', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.76rem', flexShrink: 0 }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                Import
+              </button>
             </div>
 
             <div className="sidebar-section">
-              <h3 className="sidebar-section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                Sync
-                <button
-                  className="upload-btn"
-                  onClick={() => { setCsvModal({ open: true }); setCsvModalError(null); }}
-                  style={{ fontSize: '0.72rem', padding: '3px 10px', marginLeft: 8 }}
-                >
-                  + Import
-                </button>
-              </h3>
+              <h3 className="sidebar-section-title">Sync</h3>
               <button
                 className="upload-btn"
                 onClick={syncAccounts}

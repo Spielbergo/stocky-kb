@@ -17,7 +17,7 @@
 import { createSign } from 'crypto';
 import { getDb } from '../../lib/firebase';
 
-const GADS_API_VERSION = 'v19';
+const GADS_API_VERSION = 'v20';
 const CACHE_COLLECTION = 'ads_cache';
 const CACHE_DOC        = 'accounts';
 
@@ -40,11 +40,16 @@ async function getAccessToken() {
     throw new Error('GOOGLE_SERVICE_ACCOUNT_EMAIL or GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY not set');
   }
 
+  // sub must equal iss (service account email) when the service account is
+  // directly added as a user in Google Ads. Use GOOGLE_ADS_DELEGATE_EMAIL only
+  // when domain-wide delegation to a human user is required (Google Workspace).
+  const sub = process.env.GOOGLE_ADS_DELEGATE_EMAIL || email;
+
   const now     = Math.floor(Date.now() / 1000);
   const header  = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
   const payload = b64url(JSON.stringify({
     iss:   email,
-    sub:   email,
+    sub:   sub,
     scope: 'https://www.googleapis.com/auth/adwords',
     aud:   'https://oauth2.googleapis.com/token',
     iat:   now,
@@ -68,8 +73,10 @@ async function getAccessToken() {
 
   const data = await resp.json();
   if (!data.access_token) {
-    throw new Error(data.error_description || data.error || 'Failed to obtain access token');
+    console.error('[ads-accounts] Token exchange failed:', data);
+    throw new Error(`Failed to obtain access token: ${data.error_description || data.error || JSON.stringify(data)}`);
   }
+  console.log('[ads-accounts] Access token obtained successfully');
   return data.access_token;
 }
 
@@ -80,21 +87,44 @@ async function getAccessToken() {
  * @param {string} query         - GAQL query string
  */
 async function gaqlSearch(token, customerId, query) {
-  const url  = `https://googleads.googleapis.com/${GADS_API_VERSION}/customers/${customerId}/googleAds:search`;
+  const url = `https://googleads.googleapis.com/${GADS_API_VERSION}/customers/${customerId}/googleAds:search`;
+  console.log('[ads-accounts] gaqlSearch URL:', url);
+
+  const devToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN || '';
+  const loginId  = (process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID || '').replace(/\D/g, '');
+
   const resp = await fetch(url, {
     method:  'POST',
     headers: {
-      'Authorization':    `Bearer ${token}`,
-      'developer-token':  process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
-      'login-customer-id': process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID,
-      'Content-Type':     'application/json',
+      'Authorization':     `Bearer ${token}`,
+      'developer-token':   devToken,
+      'login-customer-id': loginId,
+      'Content-Type':      'application/json',
     },
     body: JSON.stringify({ query: query.trim() }),
   });
 
   const text = await resp.text();
+  console.log('[ads-accounts] gaqlSearch status:', resp.status);
+
   if (!resp.ok) {
-    throw new Error(`Google Ads API ${resp.status}: ${text.slice(0, 400)}`);
+    // Try to parse a structured Google API error for a cleaner message
+    let detail = text.slice(0, 600);
+    try {
+      const parsed = JSON.parse(text);
+      const err    = parsed?.error;
+      if (err) {
+        const code   = err.details?.[0]?.errors?.[0]?.errorCode;
+        const inner  = code ? JSON.stringify(code) : '';
+        detail = `${err.status || err.code}: ${err.message}${inner ? ' — ' + inner : ''}`;
+      }
+    } catch { /* keep raw text */ }
+
+    // Give actionable guidance for common status codes
+    if (resp.status === 401) throw new Error(`Authentication failed — check service account credentials and scopes. Detail: ${detail}`);
+    if (resp.status === 403) throw new Error(`Permission denied — developer token may still be pending Basic Access approval, or the service account has not been granted access to this Google Ads account. Detail: ${detail}`);
+    if (resp.status === 404) throw new Error(`API endpoint not found (404) — customer ID "${customerId}" may not exist or is not accessible with this developer token. Detail: ${detail}`);
+    throw new Error(`Google Ads API ${resp.status}: ${detail}`);
   }
   return JSON.parse(text);
 }
