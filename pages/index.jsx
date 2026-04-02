@@ -54,6 +54,7 @@ export default function Home() {
   const pendingSavesRef = useRef({});
   const prevChatsRef = useRef([]);
   const [menuOpenId, setMenuOpenId] = useState(null);
+  const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
   const [modal, setModal] = useState({ open: false });
   const [modalInputValue, setModalInputValue] = useState('');
   const modalInputValueRef = useRef('');
@@ -433,27 +434,41 @@ export default function Home() {
                 <button
                   className="icon-btn"
                   style={{ flexShrink: 0, fontSize: 16, fontWeight: 700, padding: "2px 5px" }}
-                  onMouseDown={e => { e.stopPropagation(); setMenuOpenId(menuOpenId === chat.id ? null : chat.id); }}
+                  onMouseDown={e => {
+                    e.stopPropagation();
+                    if (menuOpenId === chat.id) {
+                      setMenuOpenId(null);
+                    } else {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                      setMenuOpenId(chat.id);
+                    }
+                  }}
                   onClick={e => e.stopPropagation()}
                   aria-label="Chat options"
                 >
                   &#8230;
                 </button>
                 {menuOpenId === chat.id && (
+                  <>
+                  <div
+                    style={{ position: "fixed", inset: 0, zIndex: 200 }}
+                    onMouseDown={() => setMenuOpenId(null)}
+                  />
                   <div
                     style={{
-                      position: "absolute",
-                      top: 36,
-                      right: 8,
+                      position: "fixed",
+                      top: menuPos.top,
+                      right: menuPos.right,
                       background: "var(--card-bg)",
                       border: "1px solid var(--card-border)",
                       borderRadius: 8,
                       boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
-                      zIndex: 100,
+                      zIndex: 201,
                       minWidth: 130,
                       overflow: "hidden"
                     }}
-                    onClick={e => e.stopPropagation()}
+                    onMouseDown={e => e.stopPropagation()}
                   >
                     <button
                       className="icon-btn"
@@ -493,6 +508,7 @@ export default function Home() {
                       Delete
                     </button>
                   </div>
+                  </>
                 )}
               </li>
             ))}
