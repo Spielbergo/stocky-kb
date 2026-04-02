@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import AuthGate from '../components/AuthGate';
 import NavBar from '../components/NavBar';
@@ -96,6 +96,12 @@ export default function StocksPage() {
   const [aggregateBy, setAggregateBy]   = useState('none');
   const [chartReady, setChartReady]     = useState(false);
   const [chartError, setChartError]     = useState(null);
+  const [activeIndicators, setActiveIndicators] = useState(new Set());
+  const toggleIndicator = (id) => setActiveIndicators(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
 
   // â”€â”€ Table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [pageSize, setPageSize] = useState(10);
@@ -110,7 +116,7 @@ export default function StocksPage() {
   const [toastMsg, setToastMsg] = useState('');
   const toast = (msg) => { setToastMsg(msg); setTimeout(() => setToastMsg(''), 2500); };
 
-  // ── CSV Import modal ──────────────────────────────────────────────────────────
+  // -- CSV Import modal ----------------------------------------------------------
   const [csvModal, setCsvModal]               = useState({ open: false });
   const [csvModalTicker, setCsvModalTicker]   = useState('');
   const [csvModalFile, setCsvModalFile]       = useState(null);
@@ -120,7 +126,7 @@ export default function StocksPage() {
   const [csvModalError, setCsvModalError]     = useState(null);
   const csvModalFileRef = useRef(null);
 
-  // ── Chart theme colours (resolved from CSS vars so Chart.js gets real hex values) ──
+  // -- Chart theme colours (resolved from CSS vars so Chart.js gets real hex values) --
   const [chartTheme, setChartTheme] = useState({ muted: '#a1a1aa', accent: '#16a34a', grid: 'rgba(128,128,128,0.12)' });
 
   useEffect(() => {
@@ -141,10 +147,10 @@ export default function StocksPage() {
     return () => obs.disconnect();
   }, []);
 
-  // ── Ticker context menu ───────────────────────────────────────────────────────
+  // -- Ticker context menu -------------------------------------------------------
   const [menuPos, setMenuPos] = useState(null); // { top, right } fixed position
 
-  // ── In-memory ticker data cache (survives within this page session) ───────────
+  // -- In-memory ticker data cache (survives within this page session) -----------
   // Keyed by ticker symbol. Holds { history, stockMeta } so switching between
   // previously-loaded tickers is instant with zero API calls.
   const tickerDataCache = useRef(new Map());
@@ -196,7 +202,7 @@ export default function StocksPage() {
   // â”€â”€ Cached list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => { fetchCachedList(); }, []);
 
-  // ── Retry countdown ticker ────────────────────────────────────────────────────
+  // -- Retry countdown ticker ----------------------------------------------------
   useEffect(() => {
     if (!retryAt) return;
     const tick = () => {
@@ -268,7 +274,7 @@ export default function StocksPage() {
     }
   };
 
-  // ── Download CSV ──────────────────────────────────────────────────────────────
+  // -- Download CSV --------------------------------------------------------------
   const downloadCSV = () => {
     if (!history.length) return;
     const header = ['date,open,high,low,close,volume'];
@@ -281,7 +287,7 @@ export default function StocksPage() {
     URL.revokeObjectURL(a.href);
   };
 
-  // ── CSV Import modal handlers ─────────────────────────────────────────────────
+  // -- CSV Import modal handlers -------------------------------------------------
   const REQUIRED_FIELDS = ['date','open','high','low','close','volume'];
 
   const handleCsvModalFile = async (file) => {
@@ -455,7 +461,7 @@ export default function StocksPage() {
     return { last, high52, low52, vol30, years, points: series.length };
   }, [series]);
 
-  // ── Indicator series ────────────────────────────────────────────────────────────
+  // -- Indicator series ------------------------------------------------------------
   const indicatorSeries = useMemo(() => {
     if (!sampled.length) return {};
     const closes = sampled.map(s => s.close);
@@ -760,7 +766,7 @@ export default function StocksPage() {
                   onClick={() => fetchHistory(ticker, fetchPeriod)}
                   style={{ fontSize: '0.78rem', padding: '4px 12px', whiteSpace: 'nowrap' }}
                 >
-                  ↺ Retry
+                  ? Retry
                 </button>
                 {errorCode !== 'NOT_FOUND' && (
                   <button
@@ -950,7 +956,7 @@ export default function StocksPage() {
                     <tr>
                       {[['date','Date'],['open','Open'],['high','High'],['low','Low'],['close','Close'],['volume','Volume']].map(([k, lbl]) => (
                         <th key={k} onClick={() => { setSortBy(k); setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }}>
-                          {lbl} {sortBy === k ? (sortDir === 'asc' ? '▲' : '▼') : ''}
+                          {lbl} {sortBy === k ? (sortDir === 'asc' ? '?' : '?') : ''}
                         </th>
                       ))}
                     </tr>
@@ -1003,7 +1009,7 @@ export default function StocksPage() {
         </div>
       )}
 
-      {/* ── Ticker context menu (fixed, escapes sidebar overflow) ── */}
+      {/* -- Ticker context menu (fixed, escapes sidebar overflow) -- */}
       {activeMenuTicker && menuPos && (() => {
         const mc = cachedList.find(x => x.ticker === activeMenuTicker);
         if (!mc) return null;
@@ -1049,7 +1055,7 @@ export default function StocksPage() {
         );
       })()}
 
-      {/* ── CSV Import modal ── */}
+      {/* -- CSV Import modal -- */}
       {csvModal.open && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -1131,7 +1137,7 @@ export default function StocksPage() {
                       <label style={{ fontSize: '0.76rem', color: 'var(--muted)', display: 'block', marginBottom: 3 }}>
                         {field.charAt(0).toUpperCase() + field.slice(1)}
                         {csvModalMapping[field] ? (
-                          <span style={{ color: 'var(--accent)', marginLeft: 6 }}>✓</span>
+                          <span style={{ color: 'var(--accent)', marginLeft: 6 }}>?</span>
                         ) : (
                           <span style={{ color: 'var(--danger)', marginLeft: 6 }}>required</span>
                         )}
