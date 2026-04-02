@@ -1,4 +1,5 @@
 import { getDb } from '../../lib/firebase';
+import { invalidateChunkCache } from '../../lib/chunk-cache';
 
 const PAGE_SIZE = 20; // small pages to stay well under Firestore 10 MiB gRPC limit
 
@@ -44,6 +45,7 @@ export default async function handler(req, res) {
       }
     }
 
+    invalidateChunkCache(); // bust cache so deleted book disappears immediately
     res.status(200).json({ message: 'Book removed', deleted });
   } catch (err) {
     console.error('remove-book error', err);

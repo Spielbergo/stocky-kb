@@ -7,6 +7,7 @@ import pdfParse from "pdf-parse/lib/pdf-parse.js";
 import { setProgress, clearProgress } from "./progressStore";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { getDb } from "../../lib/firebase";
+import { invalidateChunkCache } from "../../lib/chunk-cache";
 
 export const config = {
   api: { bodyParser: false },
@@ -115,6 +116,7 @@ export default async function handler(req, res) {
       );
     }
 
+    invalidateChunkCache(); // bust cache so next query sees the new book
     res.status(200).json({ message: "Book added", chunks: embeddedChunks.length });
   } catch (err) {
     console.error("Upload error:", err);

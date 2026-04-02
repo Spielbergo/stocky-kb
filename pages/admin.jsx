@@ -7,9 +7,10 @@ import AppModal from "../components/ConfirmModal";
 import { ProfileContext } from "./_app";
 
 const PROFILE_META = {
-  stocks:  { label: "Stocks",       icon: "📈" },
-  social:  { label: "Social Media", icon: "📱" },
-  ads:     { label: "Google Ads",   icon: "📊" },
+  stocks:  { label: "Stocks",                    icon: "📈" },
+  social:  { label: "Social Media",              icon: "📱" },
+  ads:     { label: "Google Ads",                icon: "📊" },
+  ads_bp:  { label: "Google Ads - Best Practices", icon: "📋" },
 };
 
 export default function AdminDashboard() {

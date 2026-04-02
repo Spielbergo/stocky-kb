@@ -25,6 +25,11 @@ export default async function handler(req, res) {
       }
       return res.status(200).json(chats);
     } catch (e) {
+      const isQuota = e?.message?.includes('RESOURCE_EXHAUSTED') || e?.message?.includes('Quota exceeded') || e?.code === 8;
+      if (isQuota) {
+        console.warn('chats GET: Firestore quota exceeded, returning empty list');
+        return res.status(200).json([]);  // graceful empty — UI stays usable
+      }
       console.error('chats GET error', e);
       return res.status(500).json({ error: e.message });
     }
