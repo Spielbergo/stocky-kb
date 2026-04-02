@@ -214,7 +214,7 @@ export default function Home() {
 
     // If we have user data enabled, fetch a short stock summary to include in the prompt
     let stockContext = null;
-    if (sourceOption !== "model" && (profile !== 'stocks' || includeHistorical)) {
+    if (sourceOption !== "model" && profile === 'stocks' && includeHistorical) {
       try {
         const sres = await fetch('/api/stock-summary');
         if (sres.ok) {
@@ -236,6 +236,7 @@ export default function Home() {
         messages,
         stockContext,
         geminiModel,
+        profile,
       }),
     });
 
@@ -273,6 +274,7 @@ export default function Home() {
         sourceOption,
         messages,
         geminiModel,
+        profile,
       }),
     });
 

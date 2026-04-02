@@ -8,6 +8,7 @@ const embedder = genAI.getGenerativeModel({ model: "gemini-embedding-001" });
 export default async function handler(req, res) {
   const { userPrompt, platform, sourceOption, stockContext, geminiModel, profile } = req.body;
   const activeProfile = profile || "stocks";
+  const bookProfile = activeProfile;
 
   let context = "";
   const db = getDb();
@@ -16,7 +17,7 @@ if (sourceOption === "mydata") {
   const snapshot = await db.collection('book_chunks').get();
   const chunks = snapshot.docs
     .map(doc => doc.data())
-    .filter(d => (d.profile || 'stocks') === activeProfile);
+    .filter(d => (d.profile || 'stocks') === bookProfile);
 
   const result = await embedder.embedContent({
     content: { parts: [{ text: userPrompt }] },
@@ -42,7 +43,7 @@ if (sourceOption === "mydata") {
   const snapshot = await db.collection('book_chunks').get();
   const chunks = snapshot.docs
     .map(doc => doc.data())
-    .filter(d => (d.profile || 'stocks') === activeProfile);
+    .filter(d => (d.profile || 'stocks') === bookProfile);
 
   const result = await embedder.embedContent({
       content: { parts: [{ text: userPrompt }] },
