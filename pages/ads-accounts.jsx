@@ -879,12 +879,8 @@ export default function AdsAccountsPage() {
 
                   {/* 3. Back / Forward arrows */}
                   <div className={styles.dateSelectorArrows}>
-                    <button className={styles.dateSelectorArrow} onClick={() => navigateDates(-1)} title="Previous period">
-                      <svg width="7" height="11" viewBox="0 0 7 11" fill="none"><path d="M6 1L1 5.5L6 10" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                    </button>
-                    <button className={styles.dateSelectorArrow} onClick={() => navigateDates(1)} title="Next period">
-                      <svg width="7" height="11" viewBox="0 0 7 11" fill="none"><path d="M1 1L6 5.5L1 10" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                    </button>
+                    <button className={styles.dateSelectorArrow} onClick={() => navigateDates(-1)} title="Previous period">&#8249;</button>
+                    <button className={styles.dateSelectorArrow} onClick={() => navigateDates(1)} title="Next period">&#8250;</button>
                   </div>
 
                   {/* 4. Quick “Last 30 days” shortcut */}
