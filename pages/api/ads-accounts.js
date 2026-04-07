@@ -214,13 +214,77 @@ async function syncFromGoogleAds() {
   return accounts;
 }
 
+// ── Live metrics for an arbitrary date range ───────────────────────────────────
+
+async function fetchMetricsForRange(dateFrom, dateTo, accountIds) {
+  const token = await getAccessToken();
+  const results = await Promise.allSettled(
+    accountIds.map(id =>
+      gaqlSearch(token, id, `
+        SELECT
+          customer.id,
+          metrics.impressions,
+          metrics.clicks,
+          metrics.cost_micros,
+          metrics.conversions
+        FROM customer
+        WHERE segments.date BETWEEN '${dateFrom}' AND '${dateTo}'
+      `)
+    )
+  );
+  const metrics = {};
+  results.forEach((result, idx) => {
+    const id = accountIds[idx];
+    if (result.status === 'fulfilled') {
+      const row = result.value?.results?.[0];
+      const m = row?.metrics;
+      metrics[id] = {
+        impressions: Number(m?.impressions || 0),
+        clicks:      Number(m?.clicks      || 0),
+        costMicros:  Number(m?.costMicros  || 0),
+        conversions: Number(m?.conversions || 0),
+      };
+    }
+  });
+  return metrics;
+}
+
 // ── Route handler ──────────────────────────────────────────────────────────────
 
 export default async function handler(req, res) {
   const db = getDb();
 
-  // GET — return cached data
+  // GET — return cached data, or live metrics when dateFrom/dateTo are supplied
   if (req.method === 'GET') {
+    const { dateFrom, dateTo } = req.query;
+
+    if (dateFrom && dateTo) {
+      // Validate date format to prevent injection
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+        return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD.' });
+      }
+      // Derive accountIds from query param or fall back to cached list
+      let accountIds = [];
+      if (req.query.accountIds) {
+        accountIds = String(req.query.accountIds).split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s));
+      }
+      if (!accountIds.length && db) {
+        try {
+          const doc = await db.collection(CACHE_COLLECTION).doc(CACHE_DOC).get();
+          if (doc.exists) accountIds = (doc.data().accounts || []).filter(a => !a.isManager).map(a => a.id);
+        } catch (e) { console.warn('ads-accounts cache read (metrics) failed', e?.message); }
+      }
+      if (!accountIds.length) return res.status(200).json({ metrics: {} });
+      try {
+        const metrics = await fetchMetricsForRange(dateFrom, dateTo, accountIds);
+        return res.status(200).json({ metrics });
+      } catch (e) {
+        console.error('ads-accounts live metrics error', e);
+        return res.status(500).json({ error: e?.message || 'Failed to fetch metrics' });
+      }
+    }
+
+    // Default: return full cached accounts list
     if (db) {
       try {
         const doc = await db.collection(CACHE_COLLECTION).doc(CACHE_DOC).get();

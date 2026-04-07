@@ -1,0 +1,1105 @@
+/* ── Sidebar ── */
+.sidebarBadgeOuter {
+  justify-content: space-between;
+}
+
+.sidebarBadgeInner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.importBtn {
+  background: var(--input-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+  padding: 5px 9px;
+  cursor: pointer;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.76rem;
+  flex-shrink: 0;
+}
+
+.reloadCacheBtn {
+  background: var(--input-bg);
+  color: var(--foreground);
+  border: 1px solid var(--card-border);
+}
+
+.syncedAt {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 9px;
+  line-height: 1.5;
+}
+
+.acctDropdownTitle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.dropdownArrow {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.acctSelectedInfo {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-bottom: 6px;
+  line-height: 1.5;
+}
+
+.clearBtn {
+  margin-left: 6px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.7rem;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.acctDropdownList {
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  overflow: hidden;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.acctItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  background: transparent;
+  border-bottom: 1px solid var(--card-border);
+  font-size: 0.82rem;
+}
+
+.acctItemChecked {
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.acctCheckbox {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.acctName {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.acctId {
+  font-family: monospace;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+/* ── Page header ── */
+
+.pageHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.pageTitle {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 800;
+}
+
+.syncedAtMain {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+/* ── Empty state ── */
+
+.emptyIcon {
+  font-size: 2rem;
+}
+
+.emptyHint {
+  font-size: 0.82rem;
+  color: var(--muted);
+  max-width: 380px;
+  text-align: center;
+  line-height: 1.6;
+}
+
+.envList {
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-align: left;
+  line-height: 2;
+  font-family: monospace;
+  list-style: none;
+  padding: 0;
+}
+
+/* ── Accounts table ── */
+
+.tableWrapper {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  overflow: auto;
+}
+
+.thSortable {
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.accountName {
+  font-weight: 600;
+}
+
+/* ── Drill-down ─────────────────────────────────────────────────────── */
+.drillLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--accent, #6366f1);
+  font-size: inherit;
+  font-weight: 600;
+  text-align: left;
+}
+
+.drillLink:hover {
+  text-decoration: underline;
+}
+
+.drillArrow {
+  font-size: 0.7rem;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.drillRow > td {
+  padding: 0 !important;
+  border-top: none !important;
+}
+
+.drillCell {
+  padding: 0 0 0 32px !important;
+  background: var(--card-bg);
+}
+
+.drillLoading,
+.drillEmpty {
+  padding: 10px 16px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.drillTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  border-left: 3px solid var(--accent, #6366f1);
+}
+
+.drillTable thead tr {
+  background: rgba(99, 102, 241, 0.06);
+}
+
+.drillTable th {
+  padding: 7px 12px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--card-border);
+}
+
+.drillTable td {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--card-border);
+  vertical-align: middle;
+}
+
+.drillTable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.drillTable tbody tr:hover td {
+  background: rgba(99, 102, 241, 0.04);
+}
+
+/* nested ads table indented further */
+.drillTable .drillCell {
+  padding-left: 24px !important;
+}
+
+.drillMeta {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.accountFlags {
+  display: flex;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.testBadge {
+  font-size: 0.65rem;
+  background: rgba(234, 179, 8, 0.15);
+  color: #a16207;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+.mgrBadge {
+  font-size: 0.65rem;
+  background: rgba(99, 102, 241, 0.15);
+  color: #4f46e5;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+.tdCustomerId {
+  font-family: monospace;
+  font-size: 0.82rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.tdTimezone {
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.tableFooter {
+  padding: 10px 16px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  border-top: 1px solid var(--card-border);
+}
+
+/* ── Composer ── */
+
+.composerOuter {
+  position: fixed;
+  bottom: 28px;
+  left: 58%;
+  transform: translateX(-50%);
+  z-index: 1400;
+}
+
+/* Static visual properties only — width/height/minHeight remain inline (state-driven) */
+.composer {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.composerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.composerTitle {
+  font-weight: 700;
+}
+
+.composerAccountLabel {
+  flex: 1;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.composerControls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.composerCtrlBtn {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--input-bg);
+  border: 1px solid var(--card-border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  line-height: 1;
+  color: #888;
+  transition: background 0.15s, color 0.15s;
+}
+
+.composerCtrlBtn:hover {
+  background: var(--card-border);
+  color: var(--foreground);
+}
+
+.composerCtrlBtnShrink {
+  font-size: 18px;
+}
+
+.composerCtrlBtnExpand {
+  font-size: 14px;
+}
+
+.composerDragHandle {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: ns-resize;
+  border-radius: 8px;
+  background: var(--input-bg);
+  border: 1px solid var(--card-border);
+  flex-shrink: 0;
+  font-size: 16px;
+  line-height: 1;
+  color: #888;
+  transition: background 0.15s, color 0.15s;
+}
+
+.composerDragHandle:hover {
+  background: var(--card-border);
+  color: var(--foreground);
+}
+
+.messagesArea {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin-bottom: 8px;
+  padding: 4px 6px;
+}
+
+.messagesAreaHasMsgs {
+  border-bottom: 1px dashed var(--card-border);
+}
+
+.messagesAreaMinimized {
+  padding: 0;
+  flex: 0;
+  max-height: 0;
+  overflow: hidden;
+  margin: 0;
+}
+
+.messageRow {
+  display: flex;
+  margin-bottom: 10px;
+}
+
+.messageRowUser {
+  justify-content: flex-end;
+}
+
+.messageBubble {
+  max-width: 80%;
+  padding: 8px 12px;
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.messageBubbleUser {
+  border-radius: 18px 18px 4px 18px;
+  background: var(--accent, #2563eb);
+  color: #fff;
+}
+
+.messageBubbleAi {
+  border-radius: 18px 18px 18px 4px;
+  background: var(--input-bg);
+  color: var(--foreground);
+  border: 1px solid var(--card-border);
+}
+
+.userBubbleText {
+  white-space: pre-wrap;
+}
+
+.aiContent {
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.inputRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.optTextarea {
+  flex: 1;
+  resize: none;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--card-border);
+  background: var(--input-bg);
+  color: var(--foreground);
+}
+
+.toolbarRow {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  flex-shrink: 0;
+  margin-top: 6px;
+}
+
+.toolbarSelect {
+  flex: 1 1 140px;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--card-border);
+  background: var(--input-bg);
+  color: var(--foreground);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.toolbarSelectWide {
+  flex-basis: 160px;
+}
+
+/* ── CSV Import modal ── */
+
+.csvOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 1500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.csvCard {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 22px 24px;
+  width: 500px;
+  max-width: 92vw;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow);
+}
+
+.csvModalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.csvModalTitle {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.csvCloseBtn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  padding: 2px 6px;
+}
+
+.csvFieldLabel {
+  font-size: 0.8rem;
+  color: var(--muted);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.csvFieldLabelFile {
+  font-size: 0.8rem;
+  color: var(--muted);
+  display: block;
+  margin-bottom: 6px;
+}
+
+.csvDropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  cursor: pointer;
+  padding: 22px 16px;
+  border: 2px dashed var(--card-border);
+  border-radius: 10px;
+  background: var(--input-bg);
+  transition: border-color 0.15s, background 0.15s;
+  text-align: center;
+}
+
+.csvFileName {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.csvFileSize {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.csvDropLabel {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.csvDropHint {
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.csvMappingSection {
+  margin-bottom: 16px;
+}
+
+.csvMappingTitle {
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.csvMappingHint {
+  font-size: 0.74rem;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.csvMappingGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+}
+
+.csvInnerLabel {
+  font-size: 0.76rem;
+  color: var(--muted);
+  display: block;
+  margin-bottom: 3px;
+}
+
+.csvMappedMark {
+  color: var(--accent);
+  margin-left: 6px;
+}
+
+.csvRequiredMark {
+  color: var(--danger);
+  margin-left: 6px;
+}
+
+.csvOptionalMark {
+  color: var(--muted);
+  margin-left: 6px;
+}
+
+.csvError {
+  color: var(--danger);
+  font-size: 0.82rem;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  background: rgba(239, 68, 68, 0.08);
+  border-radius: 6px;
+}
+
+.csvFooter {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.csvCancelBtn {
+  background: var(--input-bg);
+  color: var(--foreground);
+  border: 1px solid var(--card-border);
+}
+
+/* ── Date Range Selector ── */
+
+.dateSelectorWrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+/* Outer row: preset label | range button | arrows | quick link */
+.dateSelectorRow {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+/* 1. Preset label button */
+.dateSelectorPresetTrigger {
+  padding: 7px 12px 7px 14px;
+  border: 1px solid var(--card-border);
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  background: var(--card-bg);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  line-height: 1;
+  transition: background 0.15s;
+}
+
+.dateSelectorPresetTrigger:hover,
+.dateSelectorPresetTrigger.dateSelectorOpen {
+  background: var(--input-bg);
+  color: var(--foreground);
+}
+
+/* 2. Date range trigger button */
+.dateSelectorRangeTrigger {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px 7px 12px;
+  border: 1px solid var(--card-border);
+  border-radius: 0;
+  background: var(--card-bg);
+  color: var(--foreground);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 500;
+  white-space: nowrap;
+  line-height: 1;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.dateSelectorRangeTrigger:hover,
+.dateSelectorRangeTrigger.dateSelectorOpen {
+  background: var(--input-bg);
+  border-color: var(--accent, #6366f1);
+  /* also highlight adjacent borders */
+  z-index: 1;
+}
+
+.dateSelectorChevron {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+/* 3. Arrow group */
+.dateSelectorArrows {
+  display: flex;
+}
+
+.dateSelectorArrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 34px;
+  border: 1px solid var(--card-border);
+  border-left: none;
+  background: var(--card-bg);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s;
+}
+
+.dateSelectorArrow:last-child {
+  border-radius: 0 8px 8px 0;
+}
+
+.dateSelectorArrow:hover {
+  background: var(--input-bg);
+  color: var(--foreground);
+}
+
+/* 4. Quick link */
+.dateSelectorQuickLink {
+  margin-left: 12px;
+  background: none;
+  border: none;
+  color: var(--accent, #6366f1);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  padding: 0;
+  transition: opacity 0.15s;
+}
+
+.dateSelectorQuickLink:hover {
+  opacity: 0.75;
+}
+
+.dateSelectorQuickLink:disabled {
+  opacity: 0.35;
+  cursor: default;
+  text-decoration: none;
+}
+
+/* Dropdown panel */
+.dateSelectorDropdown {
+  position: absolute;
+  left: 0;
+  right: auto;
+  top: calc(100% + 6px);
+  z-index: 900;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 4px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.22), 0 1px 6px rgba(0, 0, 0, 0.12);
+  display: flex;
+  overflow: hidden;
+  min-width: 200px;
+}
+
+.dateSelectorDropdownRight {
+  left: auto;
+  right: 0;
+}
+
+.dateSelectorPresetList {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+  min-width: 210px;
+  border-right: 1px solid var(--card-border);
+}
+
+.dateSelectorPresetItem {
+  padding: 9px 24px 9px 20px;
+  text-align: left;
+  background: none;
+  border: none;
+  border-left: 3px solid transparent;
+  color: var(--foreground);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1.25;
+  white-space: nowrap;
+  transition: background 0.1s;
+}
+
+.dateSelectorPresetItem:hover {
+  background: var(--input-bg);
+}
+
+.dateSelectorPresetActive {
+  background: rgba(99, 102, 241, 0.09);
+  color: var(--accent, #6366f1);
+  font-weight: 500;
+  border-left: 3px solid var(--accent, #6366f1);
+  padding-left: 17px;
+}
+
+.dateSelectorPresetActive:hover {
+  background: rgba(99, 102, 241, 0.14);
+}
+
+.dateSelectorCustomPanel {
+  border-left: none;
+  padding: 18px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 260px;
+}
+
+.dateSelectorCustomFields {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.dateSelectorCustomLabel {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 5px;
+  text-transform: uppercase;
+}
+
+.dateSelectorCustomDash {
+  font-size: 1rem;
+  color: var(--muted);
+  padding-bottom: 10px;
+  flex-shrink: 0;
+}
+
+.dateSelectorDateInput {
+  width: 120px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  border: 1.5px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--foreground);
+  font-size: 0.84rem;
+  font-weight: 500;
+  transition: border-color 0.15s;
+}
+
+.dateSelectorDateInput:focus {
+  outline: none;
+  border-color: var(--accent, #6366f1);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+/* ── Saved Prompts ── */
+
+.savedPromptsEmpty {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin: 6px 0 0;
+}
+
+.savedPromptsList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.savedPromptItem {
+  background: var(--input-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 9px 10px 7px;
+}
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggleLabel {
+  font-size: 0.8rem;
+  color: var(--foreground);
+}
+
+.toggleSwitch {
+  position: relative;
+  width: 34px;
+  height: 18px;
+  background: var(--card-border);
+  border-radius: 9px;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background 0.2s;
+  outline: none;
+}
+
+.toggleSwitch:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent, #6366f1);
+}
+
+.toggleSwitchOn {
+  background: var(--accent, #6366f1);
+}
+
+.toggleThumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  transition: left 0.2s;
+}
+
+.toggleSwitchOn .toggleThumb {
+  left: 18px;
+}
+
+.savedPromptMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.savedPromptCategory {
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: rgba(99, 102, 241, 0.12);
+  color: #6366f1;
+  padding: 1px 6px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.savedPromptLabel {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  padding-bottom: 10px;
+}
+
+.savedPromptPreview {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin: 0 0 7px;
+  line-height: 1.5;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.savedPromptActions {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.savedPromptBtn {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 0.73rem;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--foreground);
+  cursor: pointer;
+  transition: background 0.13s;
+}
+
+.savedPromptBtn:hover {
+  background: var(--card-border);
+}
+
+.savedPromptBtnSend {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.3);
+  color: #6366f1;
+}
+
+.savedPromptBtnSend:hover {
+  background: rgba(99, 102, 241, 0.2);
+}
+
+.savedPromptDelete {
+  padding: 4px 7px;
+  font-size: 0.72rem;
+  border-radius: 6px;
+  border: 1px solid var(--card-border);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  line-height: 1;
+  transition: color 0.13s, background 0.13s;
+}
+
+.savedPromptDelete:hover {
+  color: var(--danger, #ef4444);
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+/* ── Save a Prompt form ── */
+
+.savePromptForm {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.savePromptLabel {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 1px;
+}
+
+.savePromptOptional {
+  font-weight: 400;
+  font-size: 0.72rem;
+}
+
+.savePromptTextarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+/* ── Toast ── */
+
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #111;
+  color: #fff;
+  padding: 10px 22px;
+  border-radius: 24px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  z-index: 9999;
+  white-space: nowrap;
+}
