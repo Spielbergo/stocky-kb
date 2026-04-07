@@ -67,6 +67,57 @@ export default function AdsAccountsPage() {
   const toast = (msg) => { setToastMsg(msg); setTimeout(() => setToastMsg(''), 2500); };
   const closeModal  = () => setModal({ open: false });
 
+  // Selected account for optimizer target
+  const [selectedAccount, setSelectedAccount] = useState(null);
+  const [optMessages, setOptMessages] = useState([]);
+  const [optInput, setOptInput] = useState('');
+  const [optLoading, setOptLoading] = useState(false);
+  // Composer sizing / resize state
+  const [composerDims, setComposerDims] = useState({ width: null, height: 220, minimized: false, expanded: false });
+  const composerRef = useRef(null);
+  const dragStateRef = useRef(null);
+
+  useEffect(() => {
+    if (composerDims.width === null && typeof window !== 'undefined') {
+      const w = Math.min(980, Math.floor(window.innerWidth * 0.94));
+      setComposerDims(d => ({ ...d, width: w }));
+    }
+  }, [composerDims.width]);
+
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  // Shrink/expand should only change height; keep width unchanged
+  const handleShrink = () => setComposerDims(d => ({ ...d, minimized: true, expanded: false, height: 120 }));
+  const handleExpand = () => setComposerDims(d => ({ ...d, minimized: false, expanded: true, height: 420 }));
+
+  // Dragging only adjusts height. Invert vertical so dragging up increases height (user preference).
+  const handleDragging = (e) => {
+    if (!dragStateRef.current) return;
+    const dy = e.clientY - dragStateRef.current.startY; // positive when moving down
+    // Invert: moving up (dy < 0) should increase height, so subtract dy
+    const deltaH = -dy;
+    const newH = clamp(dragStateRef.current.startH + deltaH, 80, window.innerHeight - 80);
+    setComposerDims(d => ({ ...d, height: newH, minimized: false, expanded: false }));
+  };
+
+  const handleDragEnd = () => {
+    dragStateRef.current = null;
+    window.removeEventListener('mousemove', handleDragging);
+    window.removeEventListener('mouseup', handleDragEnd);
+  };
+
+  const handleDragStart = (e) => {
+    e.preventDefault();
+    dragStateRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startW: composerRef.current ? composerRef.current.offsetWidth : composerDims.width,
+      startH: composerRef.current ? composerRef.current.offsetHeight : composerDims.height,
+    };
+    window.addEventListener('mousemove', handleDragging);
+    window.addEventListener('mouseup', handleDragEnd);
+  };
+
   // ── CSV Import modal ──────────────────────────────────────────────────────
   const CSV_FIELDS    = ['date', 'campaign', 'impressions', 'clicks', 'cost', 'conversions'];
   const CSV_REQUIRED  = ['date', 'campaign', 'impressions', 'clicks', 'cost'];
@@ -222,6 +273,38 @@ export default function AdsAccountsPage() {
 
   const uniqueStatuses = ['ALL', ...Array.from(new Set(accounts.map(a => a.status)))];
 
+  // Send a simple optimizer query (in-memory only; no chat persistence)
+  const handleOptimizerSend = async () => {
+    if (!optInput.trim()) return;
+    setOptLoading(true);
+    try {
+      // add user message locally
+      setOptMessages(prev => [...prev, { role: 'user', content: optInput }]);
+      const payload = {
+        platform: 'Campaign Performance',
+        userPrompt: optInput,
+        sourceOption: 'mydata',
+        messages: [],
+        geminiModel: 'gemini-2.5-flash-lite',
+        profile: 'ads',
+        accountId: selectedAccount?.id ?? null,
+      };
+      const res = await fetch('/api/query', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setOptMessages(prev => [...prev, { role: 'ai', content: data.response || 'No response' }]);
+      } else {
+        setOptMessages(prev => [...prev, { role: 'ai', content: `Error: ${data.error || 'Request failed'}` }]);
+      }
+      setOptInput('');
+    } catch (e) {
+      console.error('optimizer send error', e);
+      setOptMessages(prev => [...prev, { role: 'ai', content: `Error: ${e.message || e}` }]);
+    } finally {
+      setOptLoading(false);
+    }
+  };
+
   return (
     <ErrorBoundary>
       <AuthGate>
@@ -317,7 +400,7 @@ export default function AdsAccountsPage() {
                       key={a.id}
                       className="sidebar-item"
                       style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}
-                      onClick={() => setSearch(String(a.id))}
+                      onClick={() => { setSearch(String(a.id)); setSelectedAccount(a); }}
                     >
                       <span className="sidebar-item-label">{a.name}</span>
                       <span className="sidebar-item-meta" style={{ fontFamily: 'monospace' }}>
@@ -503,6 +586,70 @@ export default function AdsAccountsPage() {
       </AuthGate>
 
       <AppModal {...modal} onCancel={closeModal} />
+
+      {/* Bottom-center Account Optimizer composer (resizable, centered name, controls) */}
+      <div style={{ position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)', zIndex: 1400 }}>
+        <div ref={composerRef} style={{
+          background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 12, padding: 12,
+          boxShadow: '0 8px 40px rgba(0,0,0,0.6)', width: composerDims.width ? composerDims.width + 'px' : 'min(980px, 94%)',
+          height: composerDims.height ? composerDims.height + 'px' : 'auto', display: 'flex', flexDirection: 'column',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <div style={{ fontWeight: 700 }}>Account Optimizer</div>
+            <div style={{ flex: 1, textAlign: 'center', fontSize: '0.85rem', fontWeight: 500, color: 'var(--muted)' }}>
+              {selectedAccount ? selectedAccount.name : 'No account selected'}
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifySelf: 'flex-end' }}>
+              <button
+                title="Shrink"
+                onClick={handleShrink}
+                style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--card-bg)', color: 'var(--muted)', border: '1px solid rgba(255,255,255,0.04)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 0 rgba(255,255,255,0.02) inset' }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </button>
+              <button
+                title="Expand"
+                onClick={handleExpand}
+                style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--card-bg)', color: 'var(--muted)', border: '1px solid rgba(255,255,255,0.04)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 0 rgba(255,255,255,0.02) inset' }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="5" width="14" height="14" rx="2" ry="2"/></svg>
+              </button>
+              <div
+                role="button"
+                tabIndex={0}
+                title="Drag to resize"
+                onMouseDown={handleDragStart}
+                style={{ width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'ns-resize', borderRadius: 10, background: 'var(--card-bg)', border: '1px solid rgba(255,255,255,0.04)', color: 'var(--muted)' }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="1.4"/><circle cx="6" cy="12" r="1.4"/><circle cx="6" cy="18" r="1.4"/><circle cx="18" cy="6" r="1.4"/><circle cx="18" cy="12" r="1.4"/><circle cx="18" cy="18" r="1.4"/></svg>
+              </div>
+            </div>
+          </div>
+          {optMessages.length > 0 && (
+            <div style={{ marginBottom: 10, maxHeight: '60%', overflow: 'auto', paddingBottom: 8, borderBottom: '1px dashed var(--card-border)' }}>
+              {optMessages.slice(-10).map((m, i) => (
+                <div key={i} style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, color: m.role === 'user' ? 'var(--foreground)' : 'var(--muted)', fontWeight: 700 }}>{m.role === 'user' ? 'You' : 'Optimizer'}</div>
+                  <div style={{ marginTop: 6 }} dangerouslySetInnerHTML={{ __html: m.content || '' }} />
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginTop: 8 }}>
+            <textarea
+              value={optInput}
+              onChange={e => setOptInput(e.target.value)}
+              placeholder={selectedAccount ? `Ask about ${selectedAccount.name} (e.g. "Which campaigns had the best ROAS?")` : 'Select an account to target, then ask a question...'}
+              rows={2}
+              style={{ flex: 1, resize: 'vertical', padding: 10, borderRadius: 8, border: '1px solid var(--card-border)', background: 'var(--input-bg)', color: 'var(--foreground)' }}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleOptimizerSend(); } }}
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button className="generate-btn" onClick={handleOptimizerSend} disabled={optLoading} style={{ minWidth: 110 }}>{optLoading ? 'Analyzing…' : 'Analyze'}</button>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* ── CSV Import modal ── */}
       {csvModal.open && (
