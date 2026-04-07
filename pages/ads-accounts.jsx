@@ -58,7 +58,7 @@ export default function AdsAccountsPage() {
   const [syncing, setSyncing]     = useState(false);
   const [error, setError]         = useState(null);
   const [search, setSearch]       = useState('');
-  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState('ENABLED');
   const [sortBy, setSortBy]       = useState('name');
   const [sortDir, setSortDir]     = useState('asc');
   const [modal, setModal]         = useState({ open: false });
@@ -67,15 +67,24 @@ export default function AdsAccountsPage() {
   const toast = (msg) => { setToastMsg(msg); setTimeout(() => setToastMsg(''), 2500); };
   const closeModal  = () => setModal({ open: false });
 
-  // Selected account for optimizer target
-  const [selectedAccount, setSelectedAccount] = useState(null);
+  // Selected accounts for optimizer target (multi-select)
+  const [selectedAccounts, setSelectedAccounts] = useState([]);
+  const [acctDropdownOpen, setAcctDropdownOpen] = useState(false);
+  const acctDropdownRef = useRef(null);
+
+  const toggleAccountSelection = (a) => {
+    setSelectedAccounts(prev =>
+      prev.find(x => x.id === a.id) ? prev.filter(x => x.id !== a.id) : [...prev, a]
+    );
+  };
   const [optMessages, setOptMessages] = useState([]);
   const [optInput, setOptInput] = useState('');
   const [optLoading, setOptLoading] = useState(false);
   // Composer sizing / resize state
-  const [composerDims, setComposerDims] = useState({ width: null, height: 220, minimized: false, expanded: false });
+  const [composerDims, setComposerDims] = useState({ width: null, height: 135, minimized: false, expanded: false });
   const composerRef = useRef(null);
   const dragStateRef = useRef(null);
+  const [hoveredBtn, setHoveredBtn] = useState(null);
 
   useEffect(() => {
     if (composerDims.width === null && typeof window !== 'undefined') {
@@ -87,7 +96,7 @@ export default function AdsAccountsPage() {
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
   // Shrink/expand should only change height; keep width unchanged
-  const handleShrink = () => setComposerDims(d => ({ ...d, minimized: true, expanded: false, height: 120 }));
+  const handleShrink = () => setComposerDims(d => ({ ...d, minimized: true, expanded: false, height: 135 }));
   const handleExpand = () => setComposerDims(d => ({ ...d, minimized: false, expanded: true, height: 420 }));
 
   // Dragging only adjusts height. Invert vertical so dragging up increases height (user preference).
@@ -239,11 +248,12 @@ export default function AdsAccountsPage() {
   // ── Derived data ────────────────────────────────────────────────────────────
   const filtered = accounts
     .filter(a => {
+      const matchSelected = selectedAccounts.length === 0 || !!selectedAccounts.find(x => x.id === a.id);
       const matchSearch = !search ||
         a.name.toLowerCase().includes(search.toLowerCase()) ||
         String(a.id).includes(search);
       const matchStatus = statusFilter === 'ALL' || a.status === statusFilter;
-      return matchSearch && matchStatus;
+      return matchSelected && matchSearch && matchStatus;
     })
     .sort((a, b) => {
       const dir = sortDir === 'asc' ? 1 : -1;
@@ -256,9 +266,11 @@ export default function AdsAccountsPage() {
       return 0;
     });
 
-  const hasMetrics = accounts.some(a => a.metrics?.impressions);
+  const activeAccounts = selectedAccounts.length > 0 ? selectedAccounts : accounts;
 
-  const totals = accounts.reduce((acc, a) => ({
+  const hasMetrics = filtered.some(a => a.metrics?.impressions);
+
+  const totals = filtered.reduce((acc, a) => ({
     impressions: acc.impressions + (a.metrics?.impressions || 0),
     clicks:      acc.clicks      + (a.metrics?.clicks      || 0),
     costMicros:  acc.costMicros  + (a.metrics?.costMicros  || 0),
@@ -274,12 +286,17 @@ export default function AdsAccountsPage() {
   const uniqueStatuses = ['ALL', ...Array.from(new Set(accounts.map(a => a.status)))];
 
   // Send a simple optimizer query (in-memory only; no chat persistence)
+  // Streams AI output (if the endpoint supports streaming) and appends above the input in real time.
   const handleOptimizerSend = async () => {
     if (!optInput.trim()) return;
     setOptLoading(true);
     try {
       // add user message locally
       setOptMessages(prev => [...prev, { role: 'user', content: optInput }]);
+
+      // add a placeholder AI message we will update as the stream arrives
+      setOptMessages(prev => [...prev, { role: 'ai', content: '' }]);
+
       const payload = {
         platform: 'Campaign Performance',
         userPrompt: optInput,
@@ -287,19 +304,81 @@ export default function AdsAccountsPage() {
         messages: [],
         geminiModel: 'gemini-2.5-flash-lite',
         profile: 'ads',
-        accountId: selectedAccount?.id ?? null,
+        accountIds: filtered.map(a => a.id),
       };
-      const res = await fetch('/api/query', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        setOptMessages(prev => [...prev, { role: 'ai', content: data.response || 'No response' }]);
+
+      const res = await fetch('/api/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      // If the response is a stream, read chunks and update the last AI message progressively.
+      if (res.ok && res.body && typeof res.body.getReader === 'function') {
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let done = false;
+        let acc = '';
+        while (!done) {
+          const { value, done: d } = await reader.read();
+          done = d;
+          if (value) {
+            acc += dec.decode(value, { stream: true });
+            // update the most recent AI message with accumulated text
+            setOptMessages(prev => {
+              const copy = prev.slice();
+              for (let i = copy.length - 1; i >= 0; i--) {
+                if (copy[i].role === 'ai') {
+                  copy[i] = { ...copy[i], content: acc };
+                  break;
+                }
+              }
+              return copy;
+            });
+          }
+        }
+        // try to finalize any remaining decoded bytes
+        if (acc) {
+          setOptMessages(prev => {
+            const copy = prev.slice();
+            for (let i = copy.length - 1; i >= 0; i--) {
+              if (copy[i].role === 'ai') {
+                copy[i] = { ...copy[i], content: acc };
+                break;
+              }
+            }
+            return copy;
+          });
+        }
       } else {
-        setOptMessages(prev => [...prev, { role: 'ai', content: `Error: ${data.error || 'Request failed'}` }]);
+        // Non-streaming fallback: parse JSON and append response
+        const data = await res.json().catch(() => ({}));
+        setOptMessages(prev => {
+          const copy = prev.slice();
+          // replace last AI placeholder if exists
+          for (let i = copy.length - 1; i >= 0; i--) {
+            if (copy[i].role === 'ai') {
+              copy[i] = { ...copy[i], content: data.response || (res.ok ? 'No response' : `Error: ${data.error || 'Request failed'}`) };
+              return copy;
+            }
+          }
+          return [...prev, { role: 'ai', content: data.response || 'No response' }];
+        });
       }
+
       setOptInput('');
     } catch (e) {
       console.error('optimizer send error', e);
-      setOptMessages(prev => [...prev, { role: 'ai', content: `Error: ${e.message || e}` }]);
+      setOptMessages(prev => {
+        const copy = prev.slice();
+        for (let i = copy.length - 1; i >= 0; i--) {
+          if (copy[i].role === 'ai') {
+            copy[i] = { ...copy[i], content: `Error: ${e.message || e}` };
+            return copy;
+          }
+        }
+        return [...prev, { role: 'ai', content: `Error: ${e.message || e}` }];
+      });
     } finally {
       setOptLoading(false);
     }
@@ -390,25 +469,46 @@ export default function AdsAccountsPage() {
             </div>
 
             {accounts.length > 0 && (
-              <div className="sidebar-section sidebar-list-section" style={{ flex: 1 }}>
-                <h3 className="sidebar-section-title">
-                  Accounts <span className="count-badge">{accounts.length}</span>
+              <div className="sidebar-section" ref={acctDropdownRef}>
+                <h3 className="sidebar-section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }} onClick={() => setAcctDropdownOpen(o => !o)}>
+                  <span>Accounts <span className="count-badge">{accounts.length}</span></span>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>{acctDropdownOpen ? '▲' : '▼'}</span>
                 </h3>
-                <ul className="sidebar-list" style={{ maxHeight: 'none' }}>
-                  {accounts.map(a => (
-                    <li
-                      key={a.id}
-                      className="sidebar-item"
-                      style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}
-                      onClick={() => { setSearch(String(a.id)); setSelectedAccount(a); }}
-                    >
-                      <span className="sidebar-item-label">{a.name}</span>
-                      <span className="sidebar-item-meta" style={{ fontFamily: 'monospace' }}>
-                        {formatCustomerId(a.id)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                {selectedAccounts.length > 0 && (
+                  <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginBottom: 6, lineHeight: 1.5 }}>
+                    {selectedAccounts.length === 1
+                      ? selectedAccounts[0].name
+                      : `${selectedAccounts.length} accounts selected`}
+                    <button
+                      onClick={() => setSelectedAccounts([])}
+                      style={{ marginLeft: 6, background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.7rem', padding: 0, textDecoration: 'underline' }}
+                    >Clear</button>
+                  </div>
+                )}
+                {acctDropdownOpen && (
+                  <div style={{ border: '1px solid var(--card-border)', borderRadius: 8, overflow: 'hidden', maxHeight: 260, overflowY: 'auto' }}>
+                    {accounts.map(a => {
+                      const checked = !!selectedAccounts.find(x => x.id === a.id);
+                      return (
+                        <label
+                          key={a.id}
+                          style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '7px 10px', cursor: 'pointer', background: checked ? 'rgba(99,102,241,0.08)' : 'transparent', borderBottom: '1px solid var(--card-border)', fontSize: '0.82rem' }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleAccountSelection(a)}
+                            style={{ marginTop: 2, flexShrink: 0 }}
+                          />
+                          <div>
+                            <div style={{ fontWeight: 600, color: 'var(--foreground)' }}>{a.name}</div>
+                            <div style={{ fontFamily: 'monospace', fontSize: '0.72rem', color: 'var(--muted)' }}>{formatCustomerId(a.id)}</div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
@@ -438,10 +538,10 @@ export default function AdsAccountsPage() {
               <div className="stock-stat-grid" style={{ marginBottom: 24 }}>
                 <div className="stock-stat-item">
                   <div className="stock-stat-label">Accounts</div>
-                  <div className="stock-stat-value">{accounts.length}</div>
+                  <div className="stock-stat-value">{filtered.length}</div>
                   <div className="stock-stat-sub">
-                    {accounts.filter(a => a.status === 'ENABLED').length} active ·{' '}
-                    {accounts.filter(a => a.status === 'PAUSED').length} paused
+                    {filtered.filter(a => a.status === 'ENABLED').length} active ·{' '}
+                    {filtered.filter(a => a.status === 'PAUSED').length} paused
                   </div>
                 </div>
                 {hasMetrics && <>
@@ -588,7 +688,7 @@ export default function AdsAccountsPage() {
       <AppModal {...modal} onCancel={closeModal} />
 
       {/* Bottom-center Account Optimizer composer (resizable, centered name, controls) */}
-      <div style={{ position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)', zIndex: 1400 }}>
+      <div style={{ position: 'fixed', bottom: 28, left: '58%', transform: 'translateX(-50%)', zIndex: 1400 }}>
         <div ref={composerRef} style={{
           background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 12, padding: 12,
           boxShadow: '0 8px 40px rgba(0,0,0,0.6)', width: composerDims.width ? composerDims.width + 'px' : 'min(980px, 94%)',
@@ -597,36 +697,36 @@ export default function AdsAccountsPage() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <div style={{ fontWeight: 700 }}>Account Optimizer</div>
             <div style={{ flex: 1, textAlign: 'center', fontSize: '0.85rem', fontWeight: 500, color: 'var(--muted)' }}>
-              {selectedAccount ? selectedAccount.name : 'No account selected'}
+              {filtered.length === 0 ? 'No account selected' : filtered.length === 1 ? filtered[0].name : `${filtered.length} accounts`}
             </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifySelf: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <button
                 title="Shrink"
                 onClick={handleShrink}
-                style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--card-bg)', color: 'var(--muted)', border: '1px solid rgba(255,255,255,0.04)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 0 rgba(255,255,255,0.02) inset' }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              </button>
+                onMouseEnter={() => setHoveredBtn('shrink')}
+                onMouseLeave={() => setHoveredBtn(null)}
+                style={{ width: 30, height: 30, borderRadius: 8, background: hoveredBtn === 'shrink' ? 'var(--card-border)' : 'var(--input-bg)', border: '1px solid var(--card-border)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, fontSize: 18, lineHeight: 1, color: hoveredBtn === 'shrink' ? 'var(--foreground)' : '#888', transition: 'background 0.15s, color 0.15s' }}
+              >−</button>
               <button
                 title="Expand"
                 onClick={handleExpand}
-                style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--card-bg)', color: 'var(--muted)', border: '1px solid rgba(255,255,255,0.04)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 0 rgba(255,255,255,0.02) inset' }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="5" width="14" height="14" rx="2" ry="2"/></svg>
-              </button>
+                onMouseEnter={() => setHoveredBtn('expand')}
+                onMouseLeave={() => setHoveredBtn(null)}
+                style={{ width: 30, height: 30, borderRadius: 8, background: hoveredBtn === 'expand' ? 'var(--card-border)' : 'var(--input-bg)', border: '1px solid var(--card-border)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, fontSize: 14, lineHeight: 1, color: hoveredBtn === 'expand' ? 'var(--foreground)' : '#888', transition: 'background 0.15s, color 0.15s' }}
+              >⤢</button>
               <div
                 role="button"
                 tabIndex={0}
                 title="Drag to resize"
                 onMouseDown={handleDragStart}
-                style={{ width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'ns-resize', borderRadius: 10, background: 'var(--card-bg)', border: '1px solid rgba(255,255,255,0.04)', color: 'var(--muted)' }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="1.4"/><circle cx="6" cy="12" r="1.4"/><circle cx="6" cy="18" r="1.4"/><circle cx="18" cy="6" r="1.4"/><circle cx="18" cy="12" r="1.4"/><circle cx="18" cy="18" r="1.4"/></svg>
-              </div>
+                onMouseEnter={() => setHoveredBtn('drag')}
+                onMouseLeave={() => setHoveredBtn(null)}
+                style={{ width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'ns-resize', borderRadius: 8, background: hoveredBtn === 'drag' ? 'var(--card-border)' : 'var(--input-bg)', border: '1px solid var(--card-border)', flexShrink: 0, fontSize: 16, lineHeight: 1, color: hoveredBtn === 'drag' ? 'var(--foreground)' : '#888', transition: 'background 0.15s, color 0.15s' }}
+              >≡</div>
             </div>
           </div>
           {optMessages.length > 0 && (
-            <div style={{ marginBottom: 10, maxHeight: '60%', overflow: 'auto', paddingBottom: 8, borderBottom: '1px dashed var(--card-border)' }}>
+            <div style={{ marginBottom: 10, flex: 1, overflow: 'auto', paddingBottom: 8, borderBottom: '1px dashed var(--card-border)' }}>
               {optMessages.slice(-10).map((m, i) => (
                 <div key={i} style={{ marginBottom: 8 }}>
                   <div style={{ fontSize: 12, color: m.role === 'user' ? 'var(--foreground)' : 'var(--muted)', fontWeight: 700 }}>{m.role === 'user' ? 'You' : 'Optimizer'}</div>
@@ -635,11 +735,11 @@ export default function AdsAccountsPage() {
               ))}
             </div>
           )}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginTop: 8 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginTop: 8, flexShrink: 0 }}>
             <textarea
               value={optInput}
               onChange={e => setOptInput(e.target.value)}
-              placeholder={selectedAccount ? `Ask about ${selectedAccount.name} (e.g. "Which campaigns had the best ROAS?")` : 'Select an account to target, then ask a question...'}
+              placeholder={filtered.length > 0 ? `Ask about ${filtered.length === 1 ? filtered[0].name : `${filtered.length} accounts`} (e.g. "Which campaigns had the best ROAS?")` : 'Select an account to target, then ask a question...'}
               rows={2}
               style={{ flex: 1, resize: 'vertical', padding: 10, borderRadius: 8, border: '1px solid var(--card-border)', background: 'var(--input-bg)', color: 'var(--foreground)' }}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleOptimizerSend(); } }}
