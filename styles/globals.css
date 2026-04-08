@@ -5,9 +5,10 @@
   --card-border: #e5e7eb;
   --input-bg: #eee;
   --input-color: #333;
+  --saved-prompt-bg: #f3f4f6;
   --accent: #16a34a;
   --accent-hover: #15803d;
-  --danger: #ef4444;
+  --danger: #ef`4;
   --muted: #6b7280;
   --radius: 12px;
   --shadow: 0 2px 12px 0 rgba(0,0,0,0.06);
@@ -21,6 +22,7 @@
   --input-bg: #333;
   --input-color: #eee;
   --card-border: #23232a;
+  --saved-prompt-bg: #444;
   --accent: #60a5fa;
   --accent-hover: #3b82f6;
   --danger: #f87171;

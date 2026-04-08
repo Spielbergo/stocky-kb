@@ -312,6 +312,25 @@
   left: 58%;
   transform: translateX(-50%);
   z-index: 1400;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.chatTitleBar {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 4px 14px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: min(980px, 94%);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
 }
 
 /* Static visual properties only — width/height/minHeight remain inline (state-driven) */
@@ -402,6 +421,142 @@
   color: var(--foreground);
 }
 
+/* ── Chat session controls ──────────────────────────────────────────── */
+.chatSessionControls {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.chatHistoryBtnActive {
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--accent, #6366f1);
+  border-color: var(--accent, #6366f1);
+}
+
+/* ── Chat history modal ─────────────────────────────────────────────── */
+.chatHistoryModalBox {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 600px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  overflow: hidden;
+  padding-bottom: 20px;
+}
+
+.chatHistoryModalHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--card-border);
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--foreground);
+  flex-shrink: 0;
+}
+.chatHistoryModalHead > span { flex: 1; }
+
+.chatHistoryModalNewBtn {
+  font-size: 0.75rem;
+  padding: 4px 11px;
+  border-radius: 6px;
+  border: 1px solid var(--accent, #6366f1);
+  background: none;
+  color: var(--accent, #6366f1);
+  cursor: pointer;
+}
+.chatHistoryModalNewBtn:hover { background: rgba(99,102,241,0.08); }
+
+.chatHistoryModalClose {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: -5px;;
+}
+.chatHistoryModalClose:hover { background: var(--input-bg); color: var(--foreground); }
+
+.chatHistoryEmpty {
+  padding: 24px 16px;
+  font-size: 0.82rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.chatHistoryList {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.chatHistoryItem {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--card-border);
+}
+.chatHistoryItem:last-child { border-bottom: none; }
+.chatHistoryItem:hover { background: var(--input-bg); }
+
+.chatHistoryItemActive {
+  border-left: 3px solid var(--accent, #6366f1);
+}
+
+.chatHistoryItemBtn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  background: none;
+  border: none;
+  padding: 10px 14px;
+  cursor: pointer;
+  min-width: 0;
+  text-align: left;
+}
+
+.chatHistoryItemTitle {
+  font-size: 0.82rem;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+.chatHistoryItemDate {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.chatHistoryDeleteBtn {
+  padding: 0 14px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+.chatHistoryItem:hover .chatHistoryDeleteBtn { opacity: 1; }
+.chatHistoryDeleteBtn:hover { color: #dc2626; }
+
 .messagesArea {
   flex: 1;
   min-height: 0;
@@ -448,7 +603,7 @@
   border-radius: 18px 18px 18px 4px;
   background: var(--input-bg);
   color: var(--foreground);
-  border: 1px solid var(--card-border);
+  /* border: 1px solid var(--card-border); */
 }
 
 .userBubbleText {
@@ -472,7 +627,7 @@
   resize: none;
   padding: 10px;
   border-radius: 8px;
-  border: 1px solid var(--card-border);
+  /* border: 1px solid var(--card-border); */
   background: var(--input-bg);
   color: var(--foreground);
 }
@@ -486,12 +641,19 @@
   margin-top: 6px;
 }
 
+.toolbarSelectGroup {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .toolbarSelect {
   flex: 1 1 140px;
   min-width: 0;
-  padding: 6px 8px;
+  padding: 6px 8px 6px 36px;
   border-radius: 7px;
-  border: 1px solid var(--card-border);
+  /* border: 1px solid var(--card-border); */
   background: var(--input-bg);
   color: var(--foreground);
   font-size: 0.8rem;
@@ -913,7 +1075,8 @@
 }
 
 .savedPromptItem {
-  background: var(--input-bg);
+  /* background: var(--input-bg); */
+  background: var(--saved-prompt-bg);
   border: 1px solid var(--card-border);
   border-radius: 8px;
   padding: 9px 10px 7px;

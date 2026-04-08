@@ -143,6 +143,65 @@ export default function AdsAccountsPage() {
   const [optSourceOption, setOptSourceOption] = useState('mydata');
   const [optGeminiModel, setOptGeminiModel] = useState('gemini-2.5-flash-lite');
 
+  // ── Chat sessions ────────────────────────────────────────────────────────
+  const [chatSessions, setChatSessions]   = useState([]);   // [{id,title,messages,updatedAt}]
+  const [activeChatId, setActiveChatId]   = useState(null);
+  const [chatModalOpen, setChatModalOpen] = useState(false);
+  const autoSaveTimerRef = useRef(null);
+  const activeChatIdRef  = useRef(null);
+
+  // Keep ref in sync so the auto-save effect can read the latest ID without a dep
+  useEffect(() => { activeChatIdRef.current = activeChatId; }, [activeChatId]);
+
+  const genChatId = () => `chat_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+  const loadChatSessions = async () => {
+    try {
+      const res = await fetch('/api/chats?profile=ads_optimizer');
+      if (res.ok) setChatSessions(await res.json());
+    } catch {}
+  };
+
+  // Auto-save: debounced 1.5 s after messages stop changing
+  useEffect(() => {
+    if (!optMessages.length) return;
+    let id = activeChatIdRef.current;
+    if (!id) {
+      id = genChatId();
+      activeChatIdRef.current = id;
+      setActiveChatId(id);
+    }
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => {
+      const firstUser = optMessages.find(m => m.role === 'user')?.content || '';
+      const title = firstUser.length > 60 ? firstUser.slice(0, 60) + '…' : firstUser || 'Chat';
+      const doc = { id, title, messages: optMessages, profile: 'ads_optimizer', updatedAt: new Date().toISOString() };
+      fetch('/api/chats', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(doc) })
+        .catch(() => {});
+      setChatSessions(prev => [doc, ...prev.filter(c => c.id !== id)]);
+    }, 1500);
+  }, [optMessages]);
+
+  const loadChatSession = (session) => {
+    setOptMessages(session.messages || []);
+    setActiveChatId(session.id);
+    setChatModalOpen(false);
+  };
+
+  const deleteChatSession = async (id) => {
+    await fetch(`/api/chats?id=${id}`, { method: 'DELETE' });
+    setChatSessions(prev => prev.filter(c => c.id !== id));
+    if (activeChatId === id) { setOptMessages([]); setActiveChatId(null); }
+  };
+
+  const startNewChat = () => {
+    setOptMessages([]);
+    setActiveChatId(null);
+    setChatModalOpen(false);
+  };
+
+  useEffect(() => { loadChatSessions(); }, []);
+
   // ── Saved prompts ────────────────────────────────────────────────────────
   const [savedPrompts, setSavedPrompts] = useState([]);
   const [promptsOpen, setPromptsOpen] = useState(false);
@@ -317,7 +376,7 @@ export default function AdsAccountsPage() {
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
   // Shrink/expand should only change height; keep width unchanged
-  const handleShrink = () => setComposerDims(d => ({ ...d, minimized: true, expanded: false, height: 170 }));
+  const handleShrink = () => setComposerDims(d => ({ ...d, minimized: true, expanded: false, height: null }));
   const handleExpand = () => setComposerDims(d => ({ ...d, minimized: false, expanded: true, height: 720 }));
 
   // Dragging only adjusts height. Invert vertical so dragging up increases height (user preference).
@@ -747,50 +806,6 @@ export default function AdsAccountsPage() {
               </div>
             )}
 
-            {/* ── Saved Prompts: browse & use ── */}
-            <div className="sidebar-section">
-              <h3
-                className={`sidebar-section-title ${styles.acctDropdownTitle}`}
-                onClick={() => setPromptsOpen(o => !o)}
-              >
-                <span>Saved Prompts <span className="count-badge">{savedPrompts.length}</span></span>
-                <span className={styles.dropdownArrow}>{promptsOpen ? '▲' : '▼'}</span>
-              </h3>
-              {promptsOpen && (
-                savedPrompts.length === 0 ? (
-                  <p className={styles.savedPromptsEmpty}>No prompts saved yet.</p>
-                ) : (
-                  <div className={styles.savedPromptsList}>
-                    {savedPrompts.map(p => (
-                      <div key={p.id} className={styles.savedPromptItem}>
-                        <div className={styles.savedPromptMeta}>
-                          {p.category && <span className={styles.savedPromptCategory}>{p.category}</span>}
-                          <span className={styles.savedPromptLabel} title={p.text}>{p.label}</span>
-                        </div>
-                        <div className={styles.savedPromptActions}>
-                          <button
-                            className={styles.savedPromptBtn}
-                            onClick={() => loadPrompt(p.text)}
-                            title="Insert into composer"
-                          >Load</button>
-                          <button
-                            className={`${styles.savedPromptBtn} ${styles.savedPromptBtnSend}`}
-                            onClick={() => loadAndSendPrompt(p.text)}
-                            title="Insert and send"
-                          >Load + Send</button>
-                          <button
-                            className={styles.savedPromptDelete}
-                            onClick={() => deletePrompt(p.id)}
-                            title="Delete prompt"
-                          >✕</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )
-              )}
-            </div>
-
             {/* ── Save a Prompt ── */}
             <div className="sidebar-section">
               <h3
@@ -835,6 +850,50 @@ export default function AdsAccountsPage() {
                     {savingPrompt ? 'Saving…' : 'Save Prompt'}
                   </button>
                 </div>
+              )}
+            </div>
+
+            {/* ── Saved Prompts: browse & use ── */}
+            <div className="sidebar-section">
+              <h3
+                className={`sidebar-section-title ${styles.acctDropdownTitle}`}
+                onClick={() => setPromptsOpen(o => !o)}
+              >
+                <span>Saved Prompts <span className="count-badge">{savedPrompts.length}</span></span>
+                <span className={styles.dropdownArrow}>{promptsOpen ? '▲' : '▼'}</span>
+              </h3>
+              {promptsOpen && (
+                savedPrompts.length === 0 ? (
+                  <p className={styles.savedPromptsEmpty}>No prompts saved yet.</p>
+                ) : (
+                  <div className={styles.savedPromptsList}>
+                    {savedPrompts.map(p => (
+                      <div key={p.id} className={styles.savedPromptItem}>
+                        <div className={styles.savedPromptMeta}>
+                          {p.category && <span className={styles.savedPromptCategory}>{p.category}</span>}
+                          <span className={styles.savedPromptLabel} title={p.text}>{p.label}</span>
+                        </div>
+                        <div className={styles.savedPromptActions}>
+                          <button
+                            className={styles.savedPromptBtn}
+                            onClick={() => loadPrompt(p.text)}
+                            title="Insert into composer"
+                          >Load</button>
+                          <button
+                            className={`${styles.savedPromptBtn} ${styles.savedPromptBtnSend}`}
+                            onClick={() => loadAndSendPrompt(p.text)}
+                            title="Insert and send"
+                          >Load + Send</button>
+                          <button
+                            className={styles.savedPromptDelete}
+                            onClick={() => setModal({ open: true, variant: 'confirm', title: 'Delete prompt?', message: `"${p.label}" will be permanently deleted.`, confirmText: 'Delete', onConfirm: () => { deletePrompt(p.id); closeModal(); } })}
+                            title="Delete prompt"
+                          >✕</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
               )}
             </div>
 
@@ -1200,17 +1259,69 @@ export default function AdsAccountsPage() {
         </div>
       </AuthGate>
 
+      {/* Chat history modal */}
+      {chatModalOpen && (
+        <div className="modal-backdrop" onClick={() => setChatModalOpen(false)}>
+          <div className={styles.chatHistoryModalBox} onClick={e => e.stopPropagation()}>
+            <div className={styles.chatHistoryModalHead}>
+              <span>Chat History</span>
+              <button className={styles.chatHistoryModalNewBtn} onClick={startNewChat}>+ New chat</button>
+              <button className={styles.chatHistoryModalClose} onClick={() => setChatModalOpen(false)}>✕</button>
+            </div>
+            {chatSessions.length === 0 ? (
+              <div className={styles.chatHistoryEmpty}>No saved chats yet.</div>
+            ) : (
+              <div className={styles.chatHistoryList}>
+                {chatSessions.map(s => (
+                  <div
+                    key={s.id}
+                    className={`${styles.chatHistoryItem}${activeChatId === s.id ? ` ${styles.chatHistoryItemActive}` : ''}`}
+                  >
+                    <button className={styles.chatHistoryItemBtn} onClick={() => loadChatSession(s)} title={s.title}>
+                      <span className={styles.chatHistoryItemTitle}>{s.title}</span>
+                      <span className={styles.chatHistoryItemDate}>
+                        {new Date(s.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                    </button>
+                    <button className={styles.chatHistoryDeleteBtn} onClick={() => setModal({ open: true, variant: 'confirm', title: 'Delete chat?', message: `"${s.title}" will be permanently deleted.`, confirmText: 'Delete', onConfirm: () => { deleteChatSession(s.id); closeModal(); } })} title="Delete">✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <AppModal {...modal} onCancel={closeModal} />
 
       {/* Bottom-center Account Optimizer composer (resizable, centered name, controls) */}
       <div className={styles.composerOuter}>
+        {activeChatId && (
+          <div className={styles.chatTitleBar}>
+            {chatSessions.find(s => s.id === activeChatId)?.title || 'Saved chat'}
+          </div>
+        )}
         <div ref={composerRef} className={styles.composer} style={{
           width: composerDims.width ? composerDims.width + 'px' : 'min(980px, 94%)',
           height: composerDims.height ? composerDims.height + 'px' : 'auto',
           maxHeight: composerDims.height ? 'none' : '60vh',
-          minHeight: composerDims.minimized ? '170px' : '120px',
+          minHeight: '120px',
         }}>
           <div className={styles.composerHeader}>
+            {/* Left: chat session controls */}
+            <div className={styles.chatSessionControls}>
+              <button
+                title="New chat"
+                onClick={startNewChat}
+                className={styles.composerCtrlBtn}
+              >✎</button>
+              <button
+                title="Chat history"
+                onClick={() => setChatModalOpen(o => !o)}
+                className={`${styles.composerCtrlBtn}${chatModalOpen ? ` ${styles.chatHistoryBtnActive}` : ''}`}
+              >☰</button>
+            </div>
+
             <div className={styles.composerTitle}>Account Optimizer</div>
             <div className={styles.composerAccountLabel}>
               {filtered.length === 0 ? 'No account selected' : filtered.length === 1 ? filtered[0].name : `${filtered.length} accounts`}
@@ -1270,7 +1381,7 @@ export default function AdsAccountsPage() {
               value={optInput}
               onChange={e => setOptInput(e.target.value)}
               placeholder={filtered.length > 0 ? `Ask about ${filtered.length === 1 ? filtered[0].name : `${filtered.length} accounts`} (e.g. "Which campaigns had the best ROAS?")` : 'Select an account to target, then ask a question...'}
-              rows={2}
+              rows={1}
               className={styles.optTextarea}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleOptimizerSend(); } }}
             />
@@ -1286,35 +1397,46 @@ export default function AdsAccountsPage() {
           </div>
           {/* Toolbar: platform / source / model selects */}
           <div className={styles.toolbarRow}>
-            <select
-              value={optPlatform}
-              onChange={e => setOptPlatform(e.target.value)}
-              className={`${styles.toolbarSelect} ${styles.toolbarSelectWide}`}
-            >
-              {['Campaign Performance','Ad Copy Review','Keyword Strategy','Budget Optimization','Conversion Analysis','Custom Analysis'].map(o => (
-                <option key={o}>{o}</option>
-              ))}
-            </select>
-            <select
-              value={optSourceOption}
-              onChange={e => setOptSourceOption(e.target.value)}
-              className={styles.toolbarSelect}
-            >
-              <option value="mydata">My Data Only</option>
-              <option value="combined">My Data + Model</option>
-              <option value="model">Model Only</option>
-            </select>
-            <select
-              value={optGeminiModel}
-              onChange={e => setOptGeminiModel(e.target.value)}
-              className={styles.toolbarSelect}
-            >
-              <optgroup label="Gemini 2.5">
-                <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite</option>
-              </optgroup>
-            </select>
+            <div className={styles.toolbarSelectGroup}>
+              <svg stroke="currentColor" fill="none" strokeWidth="2" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" className="select-icon" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+              <select
+                value={optPlatform}
+                onChange={e => setOptPlatform(e.target.value)}
+                className={`${styles.toolbarSelect} ${styles.toolbarSelectWide}`}
+              >
+                {['Campaign Performance','Ad Copy Review','Keyword Strategy','Budget Optimization','Conversion Analysis','Custom Analysis'].map(o => (
+                  <option key={o}>{o}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className={styles.toolbarSelectGroup}>
+              <svg stroke="currentColor" fill="none" strokeWidth="2" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" className="select-icon" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+              <select
+                value={optSourceOption}
+                onChange={e => setOptSourceOption(e.target.value)}
+                className={styles.toolbarSelect}
+              >
+                <option value="mydata">My Data Only</option>
+                <option value="combined">My Data + Model</option>
+                <option value="model">Model Only</option>
+              </select>
+            </div>
+
+            <div className={styles.toolbarSelectGroup}>
+              <svg stroke="currentColor" fill="none" strokeWidth="2" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" className="select-icon" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg>
+              <select
+                value={optGeminiModel}
+                onChange={e => setOptGeminiModel(e.target.value)}
+                className={styles.toolbarSelect}
+              >
+                <optgroup label="Gemini 2.5">
+                  <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                  <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                  <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite</option>
+                </optgroup>
+              </select>
+            </div>
           </div>
         </div>
       </div>
