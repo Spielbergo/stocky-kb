@@ -162,10 +162,11 @@ export default function AdsAccountsPage() {
   const [optSelected,      setOptSelected]      = useState({});   // { [mutationId]: bool }
   const [optMutLoading,    setOptMutLoading]     = useState(false);
   const [optMutError,      setOptMutError]       = useState(null);
-  const [optConfirmOpen,   setOptConfirmOpen]    = useState(false);
-  const [optConfirmInput,  setOptConfirmInput]   = useState('');   // type-to-confirm value
-  const [optApplying,      setOptApplying]       = useState(false);
-  const [optApplyResult,   setOptApplyResult]    = useState(null); // { applied, failed, errors }
+  const [optConfirmOpen,      setOptConfirmOpen]      = useState(false);
+  const [optConfirmInput,     setOptConfirmInput]      = useState('');   // type-to-confirm value
+  const [optApplying,         setOptApplying]          = useState(false);
+  const [optApplyResult,      setOptApplyResult]       = useState(null); // { applied, failed, errors }
+  const [optCollapsedGroups,  setOptCollapsedGroups]   = useState({ bid: true, status: true, budget: true, ad_copy: true });
 
   // ── Chat sessions ────────────────────────────────────────────────────────
   const [chatSessions, setChatSessions]   = useState([]);   // [{id,title,messages,updatedAt}]
@@ -225,6 +226,40 @@ export default function AdsAccountsPage() {
   };
 
   useEffect(() => { loadChatSessions(); }, []);
+
+  // ── Opt sessions ─────────────────────────────────────────────────────────
+  const [optSessions,         setOptSessions]         = useState([]);
+  const [activeOptSessionId,  setActiveOptSessionId]  = useState(null);
+  const [optSessionsModalOpen,setOptSessionsModalOpen]= useState(false);
+
+  const genOptSessionId = () => `opt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+  const loadOptSessions = async () => {
+    try {
+      const res = await fetch('/api/opt-sessions');
+      if (res.ok) setOptSessions(await res.json());
+    } catch {}
+  };
+
+  const loadOptSession = (session) => {
+    setOptMutations(session.mutations || []);
+    const initial = {};
+    (session.mutations || []).forEach(m => { if (m.confidence === 'high') initial[m.id] = true; });
+    setOptSelected(initial);
+    setOptApplyResult(null);
+    setOptMutError(null);
+    setActiveOptSessionId(session.id);
+    setOptSessionsModalOpen(false);
+    setOptDrawerOpen(true);
+  };
+
+  const deleteOptSession = async (id) => {
+    await fetch(`/api/opt-sessions?id=${id}`, { method: 'DELETE' });
+    setOptSessions(prev => prev.filter(s => s.id !== id));
+    if (activeOptSessionId === id) setActiveOptSessionId(null);
+  };
+
+  useEffect(() => { loadOptSessions(); }, []);
 
   // ── Saved prompts ────────────────────────────────────────────────────────
   const [savedPrompts, setSavedPrompts] = useState([]);
@@ -685,6 +720,17 @@ export default function AdsAccountsPage() {
       const initial = {};
       mutations.forEach(m => { if (m.confidence === 'high') initial[m.id] = true; });
       setOptSelected(initial);
+
+      // Auto-save this session
+      if (mutations.length) {
+        const sessionId = genOptSessionId();
+        setActiveOptSessionId(sessionId);
+        const accountNames = filtered.map(a => a.name || a.id).slice(0, 3).join(', ');
+        const sessionTitle = [optPlatform, accountNames, new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })].filter(Boolean).join(' — ');
+        const doc = { id: sessionId, title: sessionTitle, mutations, platform: optPlatform, accountIds: filtered.map(a => a.id), dateFrom, dateTo, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+        fetch('/api/opt-sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(doc) }).catch(() => {});
+        setOptSessions(prev => [doc, ...prev]);
+      }
     } catch (e) {
       setOptMutError(e.message || 'Unknown error');
     } finally {
@@ -1749,6 +1795,46 @@ export default function AdsAccountsPage() {
         </div>
       )}
 
+      {/* Saved optimizations modal */}
+      {optSessionsModalOpen && (
+        <div className="modal-backdrop" onClick={() => setOptSessionsModalOpen(false)}>
+          <div className={styles.optSessionsModalBox} onClick={e => e.stopPropagation()}>
+            <div className={styles.chatHistoryModalHead}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              <span>Saved Optimizations</span>
+              <button className={styles.chatHistoryModalClose} onClick={() => setOptSessionsModalOpen(false)}>✕</button>
+            </div>
+            {optSessions.length === 0 ? (
+              <div className={styles.chatHistoryEmpty}>No saved optimizations yet. Click Optimize to generate suggestions.</div>
+            ) : (
+              <div className={styles.chatHistoryList}>
+                {optSessions.map(s => (
+                  <div
+                    key={s.id}
+                    className={`${styles.chatHistoryItem}${activeOptSessionId === s.id ? ` ${styles.chatHistoryItemActive}` : ''}`}
+                  >
+                    <button className={styles.chatHistoryItemBtn} onClick={() => loadOptSession(s)} title={s.title}>
+                      <span className={styles.chatHistoryItemTitle}>{s.title}</span>
+                      <div className={styles.optSessionMeta}>
+                        <span className={styles.optSessionBadge}>{s.mutations?.length ?? 0} suggestions</span>
+                        <span className={styles.chatHistoryItemDate}>
+                          {new Date(s.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </span>
+                      </div>
+                    </button>
+                    <button
+                      className={styles.chatHistoryDeleteBtn}
+                      onClick={() => setModal({ open: true, variant: 'confirm', title: 'Delete optimization?', message: `"${s.title}" will be permanently deleted.`, confirmText: 'Delete', onConfirm: () => { deleteOptSession(s.id); closeModal(); } })}
+                      title="Delete"
+                    >✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <AppModal
         {...modal}
         onCancel={closeModal}
@@ -1801,6 +1887,14 @@ export default function AdsAccountsPage() {
                   : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
                 }
                 Optimize
+              </button>
+              <button
+                title="Saved optimizations"
+                onClick={() => setOptSessionsModalOpen(true)}
+                className={styles.optHistoryBtn}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                {optSessions.length > 0 && <span className={styles.optHistoryCount}>{optSessions.length}</span>}
               </button>
               <button
                 title="Shrink"
@@ -1927,16 +2021,38 @@ export default function AdsAccountsPage() {
             <div className={styles.drawerHeader}>
               <div className={styles.drawerHeaderLeft}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                <span>Optimization Suggestions</span>
+                <div className={styles.drawerHeaderTitles}>
+                  <span>Optimization Suggestions</span>
+                  {activeOptSessionId && (() => {
+                    const session = optSessions.find(s => s.id === activeOptSessionId);
+                    return session ? <span className={styles.drawerSessionTitle}>{session.title}</span> : null;
+                  })()}
+                </div>
                 {!optMutLoading && optMutations.length > 0 && (
                   <span className={styles.drawerBadge}>{optMutations.length}</span>
                 )}
               </div>
-              <button
-                className={styles.drawerCloseBtn}
-                onClick={() => setOptDrawerOpen(false)}
-                disabled={optApplying}
-              >×</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {!optMutLoading && optMutations.length > 0 && (() => {
+                  const allCollapsed = ['bid','status','budget','ad_copy'].every(t => optCollapsedGroups[t] ?? true);
+                  return (
+                    <button
+                      className={styles.drawerCollapseAllBtn}
+                      onClick={() => setOptCollapsedGroups(allCollapsed
+                        ? { bid: false, status: false, budget: false, ad_copy: false }
+                        : { bid: true,  status: true,  budget: true,  ad_copy: true  }
+                      )}
+                    >
+                      {allCollapsed ? 'Expand All' : 'Collapse All'}
+                    </button>
+                  );
+                })()}
+                <button
+                  className={styles.drawerCloseBtn}
+                  onClick={() => setOptDrawerOpen(false)}
+                  disabled={optApplying}
+                >×</button>
+              </div>
             </div>
 
             {/* Body */}
@@ -1984,24 +2100,34 @@ export default function AdsAccountsPage() {
                 return groups.map(({ type, label, icon }) => {
                   const items = optMutations.filter(m => m.type === type);
                   if (!items.length) return null;
-                  const allChecked  = items.every(m => optSelected[m.id]);
-                  const someChecked = items.some(m => optSelected[m.id]);
+                  const allChecked   = items.every(m => optSelected[m.id]);
+                  const someChecked  = items.some(m => optSelected[m.id]);
+                  const collapsed    = optCollapsedGroups[type] ?? (type === 'ad_copy');
                   return (
                     <div key={type} className={styles.mutGroup}>
-                      <div className={styles.mutGroupHeader}>
-                        <label className={styles.mutGroupSelect}>
+                      <div
+                        className={styles.mutGroupHeader}
+                        onClick={() => setOptCollapsedGroups(prev => ({ ...prev, [type]: !collapsed }))}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <span onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
                           <input
                             type="checkbox"
                             checked={allChecked}
                             ref={el => { if (el) el.indeterminate = someChecked && !allChecked; }}
                             onChange={() => toggleGroup(type)}
+                            style={{ cursor: 'pointer' }}
                           />
-                          <span className={styles.mutGroupIcon}>{icon}</span>
-                          <span className={styles.mutGroupLabel}>{label}</span>
-                          <span className={styles.mutGroupCount}>{items.length}</span>
-                        </label>
+                        </span>
+                        <span className={styles.mutGroupIcon}>{icon}</span>
+                        <span className={styles.mutGroupLabel}>{label}</span>
+                        <span className={styles.mutGroupCount}>{items.length}</span>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                          style={{ transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.15s', flexShrink: 0, color: 'var(--muted)' }}>
+                          <polyline points="6 9 12 15 18 9"/>
+                        </svg>
                       </div>
-                      {items.map(m => (
+                      {!collapsed && items.map(m => (
                         <label key={m.id} className={`${styles.mutRow}${optSelected[m.id] ? ` ${styles.mutRowSelected}` : ''}`}>
                           <input
                             type="checkbox"
@@ -2022,12 +2148,12 @@ export default function AdsAccountsPage() {
                               {m.type === 'ad_copy' ? (
                                 <>
                                   <div className={styles.diffBlock}>
-                                    <span className={styles.diffLabelBefore}>Before</span>
+                                    <span className={styles.diffLabelBefore}>{m.field === 'descriptions' ? 'Descriptions — Before' : 'Headlines — Before'}</span>
                                     <ul className={styles.diffList}>{(m.before || []).map((t, i) => <li key={i}>{t}</li>)}</ul>
                                   </div>
                                   <div className={styles.diffArrow}>→</div>
                                   <div className={styles.diffBlock}>
-                                    <span className={styles.diffLabelAfter}>After</span>
+                                    <span className={styles.diffLabelAfter}>{m.field === 'descriptions' ? 'Descriptions — After' : 'Headlines — After'}</span>
                                     <ul className={styles.diffList}>{(m.after || []).map((t, i) => <li key={i}>{t}</li>)}</ul>
                                   </div>
                                 </>

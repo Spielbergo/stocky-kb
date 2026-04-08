@@ -719,7 +719,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 280px;
+  max-width: 520px;
 }
 
 .chatHistoryItemDate {
@@ -1497,6 +1497,66 @@
 .optimizeBtn:hover:not(:disabled) { opacity: 0.88; transform: translateY(-1px); }
 .optimizeBtn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+.optHistoryBtn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--card-border);
+  border-radius: 7px;
+  padding: 5px 8px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+}
+.optHistoryBtn:hover { color: var(--foreground); background: var(--input-bg); border-color: var(--accent, #6366f1); }
+
+.optHistoryCount {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background: var(--accent, #6366f1);
+  color: #fff;
+  border-radius: 9px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 1px 4px;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
+.optSessionsModalBox {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 620px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  overflow: hidden;
+  padding-bottom: 20px;
+}
+
+.optSessionMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+}
+
+.optSessionBadge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--accent, #6366f1);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+
 /* ── Optimization Drawer ── */
 .drawerOverlay {
   position: fixed;
@@ -1511,7 +1571,7 @@
 
 .optimizationDrawer {
   position: relative;
-  width: min(640px, 95vw);
+  width: min(760px, 95vw);
   height: min(85vh, calc(100vh - 80px));
   background: var(--card-bg);
   border: 1px solid var(--card-border);
@@ -1543,6 +1603,22 @@
   font-size: 0.93rem;
   font-weight: 700;
   color: var(--foreground);
+  min-width: 0;
+}
+.drawerHeaderTitles {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.drawerSessionTitle {
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
 }
 .drawerBadge {
   background: var(--accent);
@@ -1564,6 +1640,19 @@
   transition: color 0.15s, background 0.15s;
 }
 .drawerCloseBtn:hover { color: var(--foreground); background: var(--input-bg); }
+
+.drawerCollapseAllBtn {
+  background: none;
+  border: 1px solid var(--card-border);
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.drawerCollapseAllBtn:hover { color: var(--foreground); border-color: var(--accent, #6366f1); }
 
 .drawerBody {
   flex: 1;
@@ -1634,7 +1723,24 @@
   background: var(--input-bg);
   padding: 10px 14px;
   border-bottom: 1px solid var(--card-border);
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
+.mutGroupSelect { flex: 1; }
+.mutGroupCollapseBtn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+.mutGroupCollapseBtn:hover { color: var(--foreground); background: var(--card-border); }
 .mutGroupSelect {
   display: flex;
   align-items: center;

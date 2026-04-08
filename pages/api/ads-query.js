@@ -326,15 +326,16 @@ export default async function handler(req, res) {
 
   // ── Build Gemini prompt ────────────────────────────────────────────────────
   const platformNote = platform ? `\nFocus area: ${platform}.` : '';
+  const rankingInstruction = `\nWhen providing suggestions or recommendations, always present them as an explicitly ranked list — Rank 1 being the highest-impact action. Format each rank as:\n**Rank N — [Short Title]**\n[Explanation and reasoning]. Each suggestion should include the specific entity (campaign/ad group/keyword/ad), what to change, why, and the expected impact.`;
   let fullPrompt;
 
   if (!context.trim()) {
-    fullPrompt = `You are a Google Ads expert and performance marketer.${platformNote}\n\nUser: ${userPrompt}`;
+    fullPrompt = `You are a Google Ads expert and performance marketer.${platformNote}${rankingInstruction}\n\nUser: ${userPrompt}`;
   } else {
     const scopeNote = sourceOption === 'mydata'
       ? 'Base your analysis strictly on the provided account data — do not fabricate metrics not shown.'
       : 'Analyze the provided data and supplement with your broader Google Ads expertise where helpful.';
-    fullPrompt = `You are a Google Ads expert and performance marketer. ${scopeNote}${platformNote}\n\nLive Account Data:\n${context}\nUser: ${userPrompt}`;
+    fullPrompt = `You are a Google Ads expert and performance marketer. ${scopeNote}${platformNote}${rankingInstruction}\n\nLive Account Data:\n${context}\nUser: ${userPrompt}`;
   }
 
   // ── Stream Gemini response ─────────────────────────────────────────────────
