@@ -107,12 +107,13 @@ export default function AdsAccountsPage() {
   const [toastMsg, setToastMsg]   = useState('');
 
   // ── Campaign / Ad drill-down ──────────────────────────────────────────────
-  const [expandedAccountId, setExpandedAccountId]   = useState(null);
-  const [campaignRows, setCampaignRows]             = useState({});   // { [accountId]: campaign[] }
-  const [campaignLoading, setCampaignLoading]       = useState(null); // accountId being loaded
-  const [expandedCampaignId, setExpandedCampaignId] = useState(null);
-  const [adRows, setAdRows]                         = useState({});   // { [campaignId]: ad[] }
-  const [adLoading, setAdLoading]                   = useState(null); // campaignId being loaded
+  const [expandedAccountId, setExpandedAccountId]     = useState(null);
+  const [campaignRows, setCampaignRows]               = useState({});   // { [accountId]: campaign[] }
+  const [campaignLoading, setCampaignLoading]         = useState(null); // accountId being loaded
+  const [expandedCampaignId, setExpandedCampaignId]   = useState(null);
+  const [adRows, setAdRows]                           = useState({});   // { [campaignId]: ad[] }
+  const [adLoading, setAdLoading]                     = useState(null); // campaignId being loaded
+  const [campaignStatusFilter, setCampaignStatusFilter] = useState('ALL'); // ACTIVE | PAUSED | REMOVED | ALL
 
   const toast = (msg) => { setToastMsg(msg); setTimeout(() => setToastMsg(''), 2500); };
   const closeModal  = () => setModal({ open: false });
@@ -330,7 +331,7 @@ export default function AdsAccountsPage() {
     }
     setExpandedAccountId(account.id);
     setExpandedCampaignId(null);
-    if (campaignRows[account.id]) return; // already loaded
+    if (campaignRows[account.id]?.length > 0) return; // already loaded with data
     const { from, to } = computeDateRange(datePreset, customFrom, customTo);
     if (!from || !to) return;
     setCampaignLoading(account.id);
@@ -351,7 +352,7 @@ export default function AdsAccountsPage() {
       return;
     }
     setExpandedCampaignId(campaign.id);
-    if (adRows[campaign.id]) return; // already loaded
+    if (adRows[campaign.id]?.length > 0) return; // already loaded with data
     const { from, to } = computeDateRange(datePreset, customFrom, customTo);
     if (!from || !to) return;
     setAdLoading(campaign.id);
@@ -754,12 +755,12 @@ export default function AdsAccountsPage() {
                   </div>
                 </>
               )}
-              <label className={styles.toggleRow}>
+              {/* <label className={styles.toggleRow}>
                 <span className={styles.toggleLabel}>Include paused campaigns</span>
                 <span className={`${styles.toggleSwitch}${includePaused ? ` ${styles.toggleSwitchOn}` : ''}`} onClick={() => setIncludePaused(v => !v)} role="checkbox" aria-checked={includePaused} tabIndex={0} onKeyDown={e => e.key === ' ' && setIncludePaused(v => !v)}>
                   <span className={styles.toggleThumb} />
                 </span>
-              </label>
+              </label> */}
             </div>
 
             {accounts.length > 0 && (
@@ -1143,9 +1144,36 @@ export default function AdsAccountsPage() {
                               <td colSpan={colSpan} className={styles.drillCell}>
                                 {campaignLoading === a.id ? (
                                   <div className={styles.drillLoading}>Loading campaigns…</div>
-                                ) : campaigns.length === 0 ? (
-                                  <div className={styles.drillEmpty}>No campaigns found for this period.</div>
                                 ) : (
+                                  <>
+                                  <div className={styles.drillFilterBar}>
+                                    {['ACTIVE','PAUSED','REMOVED','ALL'].map(f => (
+                                      <button
+                                        key={f}
+                                        className={`${styles.drillFilterBtn}${campaignStatusFilter === f ? ` ${styles.drillFilterBtnActive}` : ''}`}
+                                        onClick={() => setCampaignStatusFilter(f)}
+                                      >{f === 'ACTIVE' ? 'Active' : f === 'PAUSED' ? 'Paused' : f === 'REMOVED' ? 'Removed' : 'All'}</button>
+                                    ))}
+                                    <span className={styles.drillFilterCount}>
+                                      {(() => {
+                                        const fc = campaigns.filter(c =>
+                                          campaignStatusFilter === 'ALL' ? true :
+                                          campaignStatusFilter === 'ACTIVE' ? c.status === 'ENABLED' :
+                                          c.status === campaignStatusFilter
+                                        ).length;
+                                        return `${fc} campaign${fc !== 1 ? 's' : ''}`;
+                                      })()}
+                                    </span>
+                                  </div>
+                                  {(() => {
+                                    const filteredCampaigns = campaigns.filter(c =>
+                                      campaignStatusFilter === 'ALL' ? true :
+                                      campaignStatusFilter === 'ACTIVE' ? c.status === 'ENABLED' :
+                                      c.status === campaignStatusFilter
+                                    );
+                                    return filteredCampaigns.length === 0 ? (
+                                      <div className={styles.drillEmpty}>No {campaignStatusFilter.toLowerCase()} campaigns.</div>
+                                    ) : (
                                   <table className={styles.drillTable}>
                                     <thead>
                                       <tr>
@@ -1160,7 +1188,7 @@ export default function AdsAccountsPage() {
                                       </tr>
                                     </thead>
                                     <tbody>
-                                      {campaigns.map(c => {
+                                      {filteredCampaigns.map(c => {
                                         const cm = c.metrics || {};
                                         const cExpanded = expandedCampaignId === c.id;
                                         const ads = adRows[c.id] || [];
@@ -1235,6 +1263,9 @@ export default function AdsAccountsPage() {
                                       })}
                                     </tbody>
                                   </table>
+                                    );
+                                  })()}
+                                  </>
                                 )}
                               </td>
                             </tr>

@@ -93,88 +93,149 @@ export default async function handler(req, res) {
   }
 
   const showPaused = includePaused === '1' || includePaused === 'true';
-  const statusClause = showPaused
-    ? `AND campaign.status IN ('ENABLED', 'PAUSED')`
-    : `AND campaign.status = 'ENABLED'`;
 
   try {
     const token = await getAccessToken();
 
     // ── Ads drill-down ──────────────────────────────────────────────────────
     if (campaignId) {
-      const adStatusClause = showPaused
-        ? `AND ad_group_ad.status IN ('ENABLED', 'PAUSED')`
-        : `AND ad_group_ad.status = 'ENABLED'`;
+      const adStatusFilter = showPaused
+        ? `ad_group_ad.status IN ('ENABLED', 'PAUSED')`
+        : `ad_group_ad.status = 'ENABLED'`;
 
-      const data = await gaqlSearch(token, accountId, `
-        SELECT
-          ad_group_ad.ad.id,
-          ad_group_ad.ad.name,
-          ad_group_ad.ad.type,
-          ad_group_ad.ad.final_urls,
-          ad_group_ad.status,
-          ad_group.name,
-          metrics.impressions,
-          metrics.clicks,
-          metrics.cost_micros,
-          metrics.conversions
-        FROM ad_group_ad
-        WHERE segments.date BETWEEN '${dateFrom}' AND '${dateTo}'
-          AND campaign.id = ${campaignId}
-          ${adStatusClause}
-        ORDER BY metrics.impressions DESC
-        LIMIT 200
-      `);
+      // 1. All ads for campaign (no date filter — so zero-activity ads still appear)
+      const [listData, metricsData] = await Promise.all([
+        gaqlSearch(token, accountId, `
+          SELECT
+            ad_group_ad.ad.id,
+            ad_group_ad.ad.name,
+            ad_group_ad.ad.type,
+            ad_group_ad.ad.final_urls,
+            ad_group_ad.status,
+            ad_group.name
+          FROM ad_group_ad
+          WHERE campaign.id = ${campaignId}
+            AND ${adStatusFilter}
+          ORDER BY ad_group_ad.ad.id
+          LIMIT 500
+        `),
+        gaqlSearch(token, accountId, `
+          SELECT
+            ad_group_ad.ad.id,
+            metrics.impressions,
+            metrics.clicks,
+            metrics.cost_micros,
+            metrics.conversions
+          FROM ad_group_ad
+          WHERE segments.date BETWEEN '${dateFrom}' AND '${dateTo}'
+            AND campaign.id = ${campaignId}
+            AND ${adStatusFilter}
+          LIMIT 500
+        `).catch(() => ({ results: [] })),
+      ]);
 
-      const ads = (data.results || []).map(r => ({
-        id:          String(r.adGroupAd?.ad?.id || ''),
-        name:        r.adGroupAd?.ad?.name || r.adGroupAd?.ad?.type || 'Ad',
-        type:        r.adGroupAd?.ad?.type || '',
-        finalUrl:    (r.adGroupAd?.ad?.finalUrls || [])[0] || '',
-        adGroupName: r.adGroup?.name || '',
-        status:      r.adGroupAd?.status || 'UNKNOWN',
-        metrics: {
+      // Build metrics lookup by ad id
+      const metricsById = {};
+      for (const r of (metricsData.results || [])) {
+        const id = String(r.adGroupAd?.ad?.id || '');
+        if (!id) continue;
+        metricsById[id] = {
           impressions: Number(r.metrics?.impressions || 0),
           clicks:      Number(r.metrics?.clicks      || 0),
           costMicros:  Number(r.metrics?.costMicros  || 0),
           conversions: Number(r.metrics?.conversions || 0),
-        },
-      }));
+        };
+      }
 
+      const ads = (listData.results || []).map(r => {
+        const id = String(r.adGroupAd?.ad?.id || '');
+        return {
+          id,
+          name:        r.adGroupAd?.ad?.name || r.adGroupAd?.ad?.type || 'Ad',
+          type:        r.adGroupAd?.ad?.type || '',
+          finalUrl:    (r.adGroupAd?.ad?.finalUrls || [])[0] || '',
+          adGroupName: r.adGroup?.name || '',
+          status:      r.adGroupAd?.status || 'UNKNOWN',
+          metrics:     metricsById[id] || { impressions: 0, clicks: 0, costMicros: 0, conversions: 0 },
+        };
+      });
+
+      // Sort by impressions desc
+      ads.sort((a, b) => b.metrics.impressions - a.metrics.impressions);
+
+      console.log(`[ads-campaigns] campaign=${campaignId} list=${listData.results?.length ?? 0} returning=${ads.length} ads`);
+      res.setHeader('Cache-Control', 'no-store');
       return res.status(200).json({ ads });
     }
 
     // ── Campaigns list ──────────────────────────────────────────────────────
-    const data = await gaqlSearch(token, accountId, `
-      SELECT
-        campaign.id,
-        campaign.name,
-        campaign.status,
-        campaign.advertising_channel_type,
-        metrics.impressions,
-        metrics.clicks,
-        metrics.cost_micros,
-        metrics.conversions
-      FROM campaign
-      WHERE segments.date BETWEEN '${dateFrom}' AND '${dateTo}'
-        ${statusClause}
-      ORDER BY metrics.impressions DESC
-      LIMIT 200
-    `);
+    // List ALL campaigns regardless of status (including REMOVED) so we can see
+    // what exists, then filter for display. Metrics query uses the status filter.
+    const statusFilter = showPaused
+      ? `campaign.status IN ('ENABLED', 'PAUSED')`
+      : `campaign.status = 'ENABLED'`;
 
-    const campaigns = (data.results || []).map(r => ({
-      id:          String(r.campaign?.id || ''),
-      name:        r.campaign?.name || `Campaign ${r.campaign?.id}`,
-      status:      r.campaign?.status || 'UNKNOWN',
-      channelType: r.campaign?.advertisingChannelType || '',
-      metrics: {
+    const [listData, metricsData] = await Promise.all([
+      gaqlSearch(token, accountId, `
+        SELECT
+          campaign.id,
+          campaign.name,
+          campaign.status,
+          campaign.advertising_channel_type
+        FROM campaign
+        ORDER BY campaign.name
+        LIMIT 500
+      `),
+      gaqlSearch(token, accountId, `
+        SELECT
+          campaign.id,
+          metrics.impressions,
+          metrics.clicks,
+          metrics.cost_micros,
+          metrics.conversions
+        FROM campaign
+        WHERE segments.date BETWEEN '${dateFrom}' AND '${dateTo}'
+          AND ${statusFilter}
+        LIMIT 500
+      `).catch(() => ({ results: [] })),
+    ]);
+
+    // Log all unique statuses found to help debug
+    const statusCounts = {};
+    for (const r of (listData.results || [])) {
+      const s = r.campaign?.status || 'UNKNOWN';
+      statusCounts[s] = (statusCounts[s] || 0) + 1;
+    }
+    console.log(`[ads-campaigns] account=${accountId} raw_list=${listData.results?.length ?? 0} statuses=${JSON.stringify(statusCounts)} metricsRows=${metricsData.results?.length ?? 0}`);
+
+    // Build metrics lookup by campaign id
+    const metricsById = {};
+    for (const r of (metricsData.results || [])) {
+      const id = String(r.campaign?.id || '');
+      if (!id) continue;
+      metricsById[id] = {
         impressions: Number(r.metrics?.impressions || 0),
         clicks:      Number(r.metrics?.clicks      || 0),
         costMicros:  Number(r.metrics?.costMicros  || 0),
         conversions: Number(r.metrics?.conversions || 0),
-      },
-    }));
+      };
+    }
 
+    const campaigns = (listData.results || []).map(r => {
+      const id = String(r.campaign?.id || '');
+      return {
+        id,
+        name:        r.campaign?.name || `Campaign ${id}`,
+        status:      r.campaign?.status || 'UNKNOWN',
+        channelType: r.campaign?.advertisingChannelType || '',
+        metrics:     metricsById[id] || { impressions: 0, clicks: 0, costMicros: 0, conversions: 0 },
+      };
+    });
+
+    // Sort by impressions desc (campaigns with activity float to top)
+    campaigns.sort((a, b) => b.metrics.impressions - a.metrics.impressions);
+
+    res.setHeader('Cache-Control', 'no-store');
     return res.status(200).json({ campaigns });
   } catch (e) {
     console.error('[ads-campaigns]', e);
