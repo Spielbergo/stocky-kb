@@ -156,6 +156,17 @@ export default function AdsAccountsPage() {
   const [optSourceOption, setOptSourceOption] = useState('mydata');
   const [optGeminiModel, setOptGeminiModel] = useState('gemini-2.5-flash-lite');
 
+  // ── Dry-run / Apply drawer ───────────────────────────────────────────────
+  const [optDrawerOpen,    setOptDrawerOpen]    = useState(false);
+  const [optMutations,     setOptMutations]     = useState([]);   // full list from /api/ads-optimize
+  const [optSelected,      setOptSelected]      = useState({});   // { [mutationId]: bool }
+  const [optMutLoading,    setOptMutLoading]     = useState(false);
+  const [optMutError,      setOptMutError]       = useState(null);
+  const [optConfirmOpen,   setOptConfirmOpen]    = useState(false);
+  const [optConfirmInput,  setOptConfirmInput]   = useState('');   // type-to-confirm value
+  const [optApplying,      setOptApplying]       = useState(false);
+  const [optApplyResult,   setOptApplyResult]    = useState(null); // { applied, failed, errors }
+
   // ── Chat sessions ────────────────────────────────────────────────────────
   const [chatSessions, setChatSessions]   = useState([]);   // [{id,title,messages,updatedAt}]
   const [activeChatId, setActiveChatId]   = useState(null);
@@ -642,6 +653,103 @@ export default function AdsAccountsPage() {
   const sortIndicator = (col) => sortBy === col ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
 
   const uniqueStatuses = ['ALL', ...Array.from(new Set(accounts.map(a => a.status)))];
+
+  // ── Dry-run: generate optimization suggestions ───────────────────────────
+  const handleOptimize = async () => {
+    if (!filtered.length) return;
+    setOptDrawerOpen(true);
+    setOptMutations([]);
+    setOptSelected({});
+    setOptMutError(null);
+    setOptApplyResult(null);
+    setOptMutLoading(true);
+    try {
+      const { from: dateFrom, to: dateTo } = computeDateRange(datePreset, customFrom, customTo);
+      const res = await fetch('/api/ads-optimize', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          accountIds:  filtered.map(a => a.id),
+          dateFrom,
+          dateTo,
+          instruction: optInput.trim() || '',
+          platform:    optPlatform,
+          geminiModel: optGeminiModel,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to generate suggestions');
+      const mutations = data.mutations || [];
+      setOptMutations(mutations);
+      // Pre-select all high-confidence mutations
+      const initial = {};
+      mutations.forEach(m => { if (m.confidence === 'high') initial[m.id] = true; });
+      setOptSelected(initial);
+    } catch (e) {
+      setOptMutError(e.message || 'Unknown error');
+    } finally {
+      setOptMutLoading(false);
+    }
+  };
+
+  // Toggle individual mutation selection
+  const toggleMutation = (id) =>
+    setOptSelected(prev => ({ ...prev, [id]: !prev[id] }));
+
+  // Toggle all mutations of a given type
+  const toggleGroup = (type) => {
+    const groupIds = optMutations.filter(m => m.type === type).map(m => m.id);
+    const allOn    = groupIds.every(id => optSelected[id]);
+    setOptSelected(prev => {
+      const next = { ...prev };
+      groupIds.forEach(id => { next[id] = !allOn; });
+      return next;
+    });
+  };
+
+  const selectedMutations = optMutations.filter(m => optSelected[m.id]);
+
+  // ── Apply: execute selected mutations ─────────────────────────────────────
+  const handleApplyConfirmed = async () => {
+    if (!selectedMutations.length || !filtered.length) return;
+    setOptConfirmOpen(false);
+    setOptConfirmInput('');
+    setOptApplying(true);
+    setOptApplyResult(null);
+    try {
+      // Apply per account — group by accountId
+      const byAccount = {};
+      selectedMutations.forEach(m => {
+        const aid = m.accountId || filtered[0]?.id;
+        if (!byAccount[aid]) byAccount[aid] = [];
+        byAccount[aid].push(m);
+      });
+
+      let totalApplied = 0, totalFailed = 0;
+      const allErrors = [];
+
+      await Promise.allSettled(Object.entries(byAccount).map(async ([aid, muts]) => {
+        const res  = await fetch('/api/ads-apply', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ accountId: aid, mutations: muts }),
+        });
+        const data = await res.json();
+        totalApplied += data.applied || 0;
+        totalFailed  += data.failed  || 0;
+        if (data.errors?.length) allErrors.push(...data.errors);
+      }));
+
+      setOptApplyResult({ applied: totalApplied, failed: totalFailed, errors: allErrors });
+      // Remove applied mutations from the list
+      setOptMutations(prev => prev.filter(m => !optSelected[m.id]));
+      setOptSelected({});
+    } catch (e) {
+      setOptApplyResult({ applied: 0, failed: selectedMutations.length, errors: [e.message] });
+    } finally {
+      setOptApplying(false);
+    }
+  };
 
   // Core send — accepts explicit text so it can be called from saved-prompt "Load + Send"
   const handleOptimizerSendWithText = async (text) => {
@@ -1681,6 +1789,19 @@ export default function AdsAccountsPage() {
               {filtered.length === 0 ? 'No account selected' : filtered.length === 1 ? filtered[0].name : `${filtered.length} accounts`}
             </div>
             <div className={styles.composerControls}>
+              {/* Dry-run / Apply button */}
+              <button
+                title="Generate & apply optimizations (dry-run)"
+                onClick={handleOptimize}
+                disabled={!filtered.length || optMutLoading}
+                className={styles.optimizeBtn}
+              >
+                {optMutLoading
+                  ? <span className="arrow-loader" style={{ width: 12, height: 12 }} />
+                  : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                }
+                Optimize
+              </button>
               <button
                 title="Shrink"
                 onClick={handleShrink}
@@ -1758,7 +1879,7 @@ export default function AdsAccountsPage() {
                 onChange={e => setOptPlatform(e.target.value)}
                 className={`${styles.toolbarSelect} ${styles.toolbarSelectWide}`}
               >
-                {['Campaign Performance','Ad Copy Review','Keyword Strategy','Budget Optimization','Conversion Analysis','Custom Analysis'].map(o => (
+                {['Campaign Performance','Ad Copy Review','Keyword Strategy','Budget Optimization','Conversion Analysis','Improve QS','Custom Analysis'].map(o => (
                   <option key={o}>{o}</option>
                 ))}
               </select>
@@ -1794,6 +1915,234 @@ export default function AdsAccountsPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Optimization Drawer ── */}
+      {optDrawerOpen && (
+          <div
+            className={styles.drawerOverlay}
+            onClick={() => { if (!optApplying) setOptDrawerOpen(false); }}
+          >
+          <div className={styles.optimizationDrawer} onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className={styles.drawerHeader}>
+              <div className={styles.drawerHeaderLeft}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                <span>Optimization Suggestions</span>
+                {!optMutLoading && optMutations.length > 0 && (
+                  <span className={styles.drawerBadge}>{optMutations.length}</span>
+                )}
+              </div>
+              <button
+                className={styles.drawerCloseBtn}
+                onClick={() => setOptDrawerOpen(false)}
+                disabled={optApplying}
+              >×</button>
+            </div>
+
+            {/* Body */}
+            <div className={styles.drawerBody}>
+
+              {/* Loading state */}
+              {optMutLoading && (
+                <div className={styles.drawerLoading}>
+                  <span className="arrow-loader" style={{ width: 20, height: 20 }} />
+                  <span>Analyzing accounts and generating suggestions…</span>
+                </div>
+              )}
+
+              {/* Error */}
+              {!optMutLoading && optMutError && (
+                <div className={styles.drawerError}>
+                  <strong>Error:</strong> {optMutError}
+                  <button className={styles.drawerRetryBtn} onClick={handleOptimize}>Retry</button>
+                </div>
+              )}
+
+              {/* Apply result banner */}
+              {optApplyResult && (
+                <div className={`${styles.applyResult} ${optApplyResult.failed ? styles.applyResultWarn : styles.applyResultOk}`}>
+                  {optApplyResult.failed === 0
+                    ? `✓ ${optApplyResult.applied} change${optApplyResult.applied !== 1 ? 's' : ''} applied successfully.`
+                    : `${optApplyResult.applied} applied, ${optApplyResult.failed} failed.`
+                  }
+                  {optApplyResult.errors?.length > 0 && (
+                    <ul className={styles.applyErrorList}>
+                      {optApplyResult.errors.map((e, i) => <li key={i}>{e}</li>)}
+                    </ul>
+                  )}
+                </div>
+              )}
+
+              {/* Mutation groups */}
+              {!optMutLoading && !optMutError && optMutations.length > 0 && (() => {
+                const groups = [
+                  { type: 'bid',     label: 'Bid Adjustments',  icon: '↕' },
+                  { type: 'status',  label: 'Status Changes',   icon: '◉' },
+                  { type: 'budget',  label: 'Budget Changes',   icon: '$' },
+                  { type: 'ad_copy', label: 'Ad Copy',          icon: '✏' },
+                ];
+                return groups.map(({ type, label, icon }) => {
+                  const items = optMutations.filter(m => m.type === type);
+                  if (!items.length) return null;
+                  const allChecked  = items.every(m => optSelected[m.id]);
+                  const someChecked = items.some(m => optSelected[m.id]);
+                  return (
+                    <div key={type} className={styles.mutGroup}>
+                      <div className={styles.mutGroupHeader}>
+                        <label className={styles.mutGroupSelect}>
+                          <input
+                            type="checkbox"
+                            checked={allChecked}
+                            ref={el => { if (el) el.indeterminate = someChecked && !allChecked; }}
+                            onChange={() => toggleGroup(type)}
+                          />
+                          <span className={styles.mutGroupIcon}>{icon}</span>
+                          <span className={styles.mutGroupLabel}>{label}</span>
+                          <span className={styles.mutGroupCount}>{items.length}</span>
+                        </label>
+                      </div>
+                      {items.map(m => (
+                        <label key={m.id} className={`${styles.mutRow}${optSelected[m.id] ? ` ${styles.mutRowSelected}` : ''}`}>
+                          <input
+                            type="checkbox"
+                            checked={!!optSelected[m.id]}
+                            onChange={() => toggleMutation(m.id)}
+                            className={styles.mutCheckbox}
+                          />
+                          <div className={styles.mutContent}>
+                            <div className={styles.mutMeta}>
+                              <span className={`${styles.confBadge} ${styles[`confBadge_${m.confidence}`]}`}>
+                                {m.confidence}
+                              </span>
+                              <span className={styles.mutEntityName}>{m.entityName}</span>
+                              {m.campaignName && <span className={styles.mutCampaign}>{m.campaignName}</span>}
+                              {m.adGroupName  && <span className={styles.mutCampaign}>{m.adGroupName}</span>}
+                            </div>
+                            <div className={styles.mutDiff}>
+                              {m.type === 'ad_copy' ? (
+                                <>
+                                  <div className={styles.diffBlock}>
+                                    <span className={styles.diffLabelBefore}>Before</span>
+                                    <ul className={styles.diffList}>{(m.before || []).map((t, i) => <li key={i}>{t}</li>)}</ul>
+                                  </div>
+                                  <div className={styles.diffArrow}>→</div>
+                                  <div className={styles.diffBlock}>
+                                    <span className={styles.diffLabelAfter}>After</span>
+                                    <ul className={styles.diffList}>{(m.after || []).map((t, i) => <li key={i}>{t}</li>)}</ul>
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <span className={styles.diffBefore}>{m.beforeDisplay}</span>
+                                  <span className={styles.diffArrow}>→</span>
+                                  <span className={styles.diffAfter}>{m.afterDisplay}</span>
+                                </>
+                              )}
+                            </div>
+                            <div className={styles.mutReason}>{m.reason}</div>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  );
+                });
+              })()}
+
+              {/* Empty state */}
+              {!optMutLoading && !optMutError && optMutations.length === 0 && !optApplyResult && (
+                <div className={styles.drawerEmpty}>
+                  No suggestions generated. Try selecting different accounts or clicking Retry.
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            {!optMutLoading && selectedMutations.length > 0 && (
+              <div className={styles.drawerFooter}>
+                <span className={styles.drawerSelectedCount}>
+                  {selectedMutations.length} change{selectedMutations.length !== 1 ? 's' : ''} selected
+                </span>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    className={styles.drawerCancelBtn}
+                    onClick={() => setOptSelected({})}
+                    disabled={optApplying}
+                  >
+                    Deselect All
+                  </button>
+                  <button
+                    className={styles.drawerApplyBtn}
+                    onClick={() => setOptConfirmOpen(true)}
+                    disabled={optApplying}
+                  >
+                    {optApplying
+                      ? <><span className="arrow-loader" style={{ width: 12, height: 12 }} /> Applying…</>
+                      : `Apply ${selectedMutations.length} Change${selectedMutations.length !== 1 ? 's' : ''} ›`
+                    }
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+          </div>
+      )}
+
+      {/* Confirm dialog */}
+      {optConfirmOpen && (() => {
+        const requiresTyping = selectedMutations.length > 5;
+        const confirmWord    = 'APPLY';
+        const canConfirm     = !requiresTyping || optConfirmInput.trim().toUpperCase() === confirmWord;
+        return (
+          <div className={styles.confirmOverlay} onClick={() => { setOptConfirmOpen(false); setOptConfirmInput(''); }}>
+            <div className={styles.confirmCard} onClick={e => e.stopPropagation()}>
+              <div className={styles.confirmWarningBanner}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                <span>This will make live changes to your Google Ads account</span>
+              </div>
+              <div className={styles.confirmTitle}>Apply {selectedMutations.length} Change{selectedMutations.length !== 1 ? 's' : ''} to Live Account?</div>
+              <div className={styles.confirmBody}>
+                <p>These changes will take effect immediately and cannot be automatically undone. An audit log will be saved to Firestore so you can track what was changed.</p>
+                <ul className={styles.confirmList}>
+                  {selectedMutations.slice(0, 8).map(m => (
+                    <li key={m.id}>
+                      <strong>{m.entityName}</strong>: {m.beforeDisplay} → {m.afterDisplay}
+                      <span className={`${styles.confBadge} ${styles[`confBadge_${m.confidence}`]}`} style={{ marginLeft: 6 }}>{m.confidence}</span>
+                    </li>
+                  ))}
+                  {selectedMutations.length > 8 && <li>…and {selectedMutations.length - 8} more</li>}
+                </ul>
+                {requiresTyping && (
+                  <div className={styles.confirmTypeRow}>
+                    <label className={styles.confirmTypeLabel}>
+                      Type <strong>{confirmWord}</strong> to confirm:
+                    </label>
+                    <input
+                      className={styles.confirmTypeInput}
+                      value={optConfirmInput}
+                      onChange={e => setOptConfirmInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && canConfirm) handleApplyConfirmed(); if (e.key === 'Escape') { setOptConfirmOpen(false); setOptConfirmInput(''); } }}
+                      placeholder={confirmWord}
+                      autoFocus
+                      spellCheck={false}
+                      autoComplete="off"
+                    />
+                  </div>
+                )}
+              </div>
+              <div className={styles.confirmActions}>
+                <button className={styles.drawerCancelBtn} onClick={() => { setOptConfirmOpen(false); setOptConfirmInput(''); }}>Cancel</button>
+                <button
+                  className={`${styles.drawerApplyBtn} ${styles.drawerApplyBtnDanger}`}
+                  onClick={handleApplyConfirmed}
+                  disabled={!canConfirm}
+                >
+                  Apply Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── CSV Import modal ── */}
       {csvModal.open && (

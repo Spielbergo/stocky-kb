@@ -1476,3 +1476,447 @@
   z-index: 9999;
   white-space: nowrap;
 }
+
+/* ── Optimize button in composer header ── */
+.optimizeBtn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  padding: 5px 11px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.optimizeBtn:hover:not(:disabled) { opacity: 0.88; transform: translateY(-1px); }
+.optimizeBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Optimization Drawer ── */
+.drawerOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.optimizationDrawer {
+  position: relative;
+  width: min(640px, 95vw);
+  height: min(85vh, calc(100vh - 80px));
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  animation: fadeInScale 0.2s ease;
+}
+
+@keyframes fadeInScale {
+  from { transform: scale(0.96) translateY(8px); opacity: 0; }
+  to   { transform: scale(1)    translateY(0);   opacity: 1; }
+}
+
+.drawerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--card-border);
+  flex-shrink: 0;
+}
+.drawerHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.93rem;
+  font-weight: 700;
+  color: var(--foreground);
+}
+.drawerBadge {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 9px;
+  padding: 1px 7px;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+.drawerCloseBtn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.4rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 5px;
+  transition: color 0.15s, background 0.15s;
+}
+.drawerCloseBtn:hover { color: var(--foreground); background: var(--input-bg); }
+
+.drawerBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: scroll;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.drawerLoading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  padding: 32px 0;
+  justify-content: center;
+}
+.drawerError {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 0.85rem;
+  color: var(--danger, #ef4444);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.drawerRetryBtn {
+  margin-left: auto;
+  background: var(--input-bg);
+  border: 1px solid var(--card-border);
+  color: var(--foreground);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.drawerEmpty {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.88rem;
+  padding: 40px 0;
+}
+
+/* Apply result banner */
+.applyResult {
+  border-radius: 8px;
+  padding: 11px 14px;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+.applyResultOk   { background: rgba(34, 197, 94, 0.12); border: 1px solid rgba(34, 197, 94, 0.3); color: #16a34a; }
+.applyResultWarn { background: rgba(239, 68, 68, 0.1);  border: 1px solid rgba(239, 68, 68, 0.3);  color: var(--danger, #ef4444); }
+.applyErrorList  { margin: 6px 0 0 14px; padding: 0; font-size: 0.78rem; }
+
+/* Mutation groups */
+.mutGroup {
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  /* overflow-y: scroll; */
+}
+.mutGroupHeader {
+  background: var(--input-bg);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--card-border);
+}
+.mutGroupSelect {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.mutGroupIcon  { font-size: 1rem; }
+.mutGroupLabel { flex: 1; }
+.mutGroupCount {
+  background: var(--card-border);
+  border-radius: 8px;
+  padding: 1px 7px;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+/* Individual mutation rows */
+.mutRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: background 0.12s;
+  border-bottom: 1px solid var(--card-border);
+}
+.mutRow:last-child { border-bottom: none; }
+.mutRow:hover { background: var(--input-bg); }
+.mutRowSelected { background: rgba(99, 102, 241, 0.06); }
+.mutRowSelected:hover { background: rgba(99, 102, 241, 0.1); }
+
+.mutCheckbox { margin-top: 3px; flex-shrink: 0; accent-color: var(--accent); width: 15px; height: 15px; }
+
+.mutContent {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mutMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.mutEntityName {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.mutCampaign {
+  font-size: 0.73rem;
+  color: var(--muted);
+  background: var(--input-bg);
+  padding: 1px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--card-border);
+}
+
+/* Before / After diff */
+.mutDiff {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.diffBefore {
+  font-size: 0.83rem;
+  color: var(--danger, #ef4444);
+  background: rgba(239, 68, 68, 0.08);
+  padding: 2px 8px;
+  border-radius: 5px;
+  text-decoration: line-through;
+  font-family: monospace;
+}
+.diffAfter {
+  font-size: 0.83rem;
+  color: #16a34a;
+  background: rgba(34, 197, 94, 0.1);
+  padding: 2px 8px;
+  border-radius: 5px;
+  font-family: monospace;
+  font-weight: 600;
+}
+.diffArrow {
+  color: var(--muted);
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+/* Ad copy diff block */
+.diffBlock {
+  flex: 1;
+  min-width: 120px;
+}
+.diffLabelBefore {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--danger, #ef4444);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  display: block;
+  margin-bottom: 3px;
+}
+.diffLabelAfter {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #16a34a;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  display: block;
+  margin-bottom: 3px;
+}
+.diffList {
+  margin: 0;
+  padding-left: 14px;
+  font-size: 0.78rem;
+  color: var(--foreground);
+  line-height: 1.5;
+}
+
+.mutReason {
+  font-size: 0.77rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+/* Confidence badges */
+.confBadge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.confBadge_high   { background: rgba(34, 197, 94, 0.15);  color: #16a34a;  border: 1px solid rgba(34, 197, 94, 0.3); }
+.confBadge_medium { background: rgba(234, 179, 8, 0.15);  color: #a16207;  border: 1px solid rgba(234, 179, 8, 0.3); }
+.confBadge_low    { background: rgba(239, 68, 68, 0.1);   color: #dc2626;  border: 1px solid rgba(239, 68, 68, 0.25); }
+
+/* Drawer footer */
+.drawerFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--card-border);
+  flex-shrink: 0;
+}
+.drawerSelectedCount {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.drawerCancelBtn {
+  background: var(--input-bg);
+  border: 1px solid var(--card-border);
+  color: var(--foreground);
+  border-radius: 7px;
+  padding: 7px 14px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.drawerCancelBtn:hover { background: var(--card-border); }
+.drawerApplyBtn {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  padding: 7px 16px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: opacity 0.15s;
+}
+.drawerApplyBtn:hover:not(:disabled) { opacity: 0.88; }
+.drawerApplyBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Confirm dialog */
+.confirmOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 2100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.confirmCard {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 480px;
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+.confirmTitle {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--foreground);
+  margin-bottom: 14px;
+}
+.confirmBody {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 16px;
+  line-height: 1.55;
+}
+.confirmBody p { margin: 0 0 10px; }
+.confirmList {
+  margin: 8px 0 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.confirmList li {
+  font-size: 0.82rem;
+  color: var(--foreground);
+}
+.confirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+/* Destructive (red) variant of the apply button */
+.drawerApplyBtnDanger {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%) !important;
+}
+.drawerApplyBtnDanger:hover:not(:disabled) { opacity: 0.88; }
+.drawerApplyBtnDanger:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Warning banner at top of confirm dialog */
+.confirmWarningBanner {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: rgba(234, 179, 8, 0.12);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  border-radius: 8px;
+  padding: 10px 13px;
+  margin-bottom: 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #a16207;
+}
+
+/* Type-to-confirm row */
+.confirmTypeRow {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.confirmTypeLabel {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.confirmTypeInput {
+  background: var(--input-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 7px;
+  color: var(--foreground);
+  padding: 8px 12px;
+  font-size: 0.88rem;
+  font-family: monospace;
+  letter-spacing: 0.08em;
+  transition: border-color 0.15s;
+}
+.confirmTypeInput:focus {
+  outline: none;
+  border-color: var(--accent);
+}
