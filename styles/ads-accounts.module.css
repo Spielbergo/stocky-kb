@@ -2026,3 +2026,207 @@
   outline: none;
   border-color: var(--accent);
 }
+
+/* ── Audit Log Modal ── */
+.auditModalBox {
+  position: relative;
+  width: min(780px, 96vw);
+  max-height: min(82vh, calc(100vh - 60px));
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.auditEmpty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 20px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.auditList {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+/* ── Audit Entry ── */
+.auditEntry {
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--card-border);
+}
+.auditEntry:last-child {
+  border-bottom: none;
+}
+
+.auditEntryRollback {
+  border-left: 3px solid rgba(139, 92, 246, 0.5);
+  padding-left: 15px;
+  background: rgba(139, 92, 246, 0.04);
+}
+
+.auditEntryHead {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.auditEntryTime {
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.auditEntryAccount {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-family: monospace;
+}
+
+.auditRollbackBadge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: rgba(139, 92, 246, 0.15);
+  color: #8b5cf6;
+  border-radius: 5px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+.auditStat {
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 5px;
+  padding: 1px 8px;
+  white-space: nowrap;
+  margin-left: auto;
+}
+.auditStatOk {
+  background: rgba(34, 197, 94, 0.12);
+  color: #16a34a;
+}
+.auditStatWarn {
+  background: rgba(249, 115, 22, 0.12);
+  color: #c2410c;
+}
+
+/* ── Mutation rows inside an entry ── */
+.auditMutList {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-left: 2px;
+}
+
+.auditMutRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: var(--input-bg, rgba(0, 0, 0, 0.04));
+}
+
+.auditMutInfo {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.auditMutType {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--accent, #6366f1);
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.auditMutEntity {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.auditMutCampaign {
+  font-size: 0.75rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.auditMutDiff {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  font-size: 0.8rem;
+}
+
+.auditMutActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.auditRollbackBtn {
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--card-border);
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.auditRollbackBtn:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: var(--accent, #6366f1);
+  color: var(--accent, #6366f1);
+}
+.auditRollbackBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.auditRollbackOk {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #16a34a;
+  white-space: nowrap;
+}
+
+.auditRollbackErr {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--danger, #ef4444);
+  white-space: nowrap;
+}

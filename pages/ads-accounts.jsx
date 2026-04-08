@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { marked } from 'marked';
+import { adminFetch } from '../lib/admin-fetch';
 import AuthGate from '../components/AuthGate';
 import NavBar from '../components/NavBar';
 import ErrorBoundary from '../components/ErrorBoundary';
@@ -260,6 +261,55 @@ export default function AdsAccountsPage() {
   };
 
   useEffect(() => { loadOptSessions(); }, []);
+
+  // ── Audit log ─────────────────────────────────────────────────────────────
+  const [auditEntries,    setAuditEntries]    = useState([]);
+  const [auditModalOpen,  setAuditModalOpen]  = useState(false);
+  const [auditLoading,    setAuditLoading]    = useState(false);
+  const [auditError,      setAuditError]      = useState(null);
+  const [rollingBack,     setRollingBack]     = useState({});   // { [auditId_mutId]: true }
+  const [rollbackResult,  setRollbackResult]  = useState({});   // { [auditId_mutId]: 'ok'|'error' }
+
+  const loadAuditLog = async () => {
+    setAuditLoading(true);
+    setAuditError(null);
+    try {
+      const res = await adminFetch('/api/ads-audit');
+      if (!res.ok) throw new Error('Failed to load audit log');
+      setAuditEntries(await res.json());
+    } catch (e) {
+      setAuditError(e.message);
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
+  const handleRollback = async (auditId, mutationId) => {
+    const key = `${auditId}_${mutationId}`;
+    setRollingBack(prev => ({ ...prev, [key]: true }));
+    setRollbackResult(prev => ({ ...prev, [key]: null }));
+    try {
+      const res  = await adminFetch('/api/ads-rollback', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ auditId, mutationId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Rollback failed');
+      setRollbackResult(prev => ({ ...prev, [key]: 'ok' }));
+      // Reload to show the new rollback entry
+      loadAuditLog();
+    } catch (e) {
+      setRollbackResult(prev => ({ ...prev, [key]: e.message }));
+    } finally {
+      setRollingBack(prev => ({ ...prev, [key]: false }));
+    }
+  };
+
+  const deleteAuditEntry = async (id) => {
+    await adminFetch(`/api/ads-audit?id=${id}`, { method: 'DELETE' });
+    setAuditEntries(prev => prev.filter(e => e.id !== id));
+  };
 
   // ── Saved prompts ────────────────────────────────────────────────────────
   const [savedPrompts, setSavedPrompts] = useState([]);
@@ -700,7 +750,7 @@ export default function AdsAccountsPage() {
     setOptMutLoading(true);
     try {
       const { from: dateFrom, to: dateTo } = computeDateRange(datePreset, customFrom, customTo);
-      const res = await fetch('/api/ads-optimize', {
+      const res = await adminFetch('/api/ads-optimize', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
@@ -775,7 +825,7 @@ export default function AdsAccountsPage() {
       const allErrors = [];
 
       await Promise.allSettled(Object.entries(byAccount).map(async ([aid, muts]) => {
-        const res  = await fetch('/api/ads-apply', {
+        const res  = await adminFetch('/api/ads-apply', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({ accountId: aid, mutations: muts }),
@@ -1842,6 +1892,95 @@ export default function AdsAccountsPage() {
         onInputChange={v => { modalInputValueRef.current = v; setModalInputValue(v); }}
       />
 
+      {/* Audit Log modal */}
+      {auditModalOpen && (
+        <div className="modal-backdrop" onClick={() => setAuditModalOpen(false)}>
+          <div className={styles.auditModalBox} onClick={e => e.stopPropagation()}>
+            <div className={styles.chatHistoryModalHead}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              <span>Audit Log</span>
+              <button className={styles.drawerRetryBtn} onClick={loadAuditLog} disabled={auditLoading} style={{ marginLeft: 'auto' }}>↻ Refresh</button>
+              <button className={styles.chatHistoryModalClose} onClick={() => setAuditModalOpen(false)}>✕</button>
+            </div>
+
+            {auditLoading && (
+              <div className={styles.auditEmpty}>
+                <span className="arrow-loader" style={{ width: 16, height: 16 }} /> Loading…
+              </div>
+            )}
+            {!auditLoading && auditError && (
+              <div className={styles.auditEmpty} style={{ color: 'var(--danger, #ef4444)' }}>{auditError}</div>
+            )}
+            {!auditLoading && !auditError && auditEntries.length === 0 && (
+              <div className={styles.auditEmpty}>No changes have been applied yet.</div>
+            )}
+            {!auditLoading && !auditError && auditEntries.length > 0 && (
+              <div className={styles.auditList}>
+                {auditEntries.map(entry => (
+                  <div key={entry.id} className={`${styles.auditEntry}${entry.type === 'rollback' ? ` ${styles.auditEntryRollback}` : ''}`}>
+                    <div className={styles.auditEntryHead}>
+                      <span className={styles.auditEntryTime}>
+                        {new Date(entry.timestamp).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                      </span>
+                      <span className={styles.auditEntryAccount}>Account {entry.accountId}</span>
+                      {entry.type === 'rollback' && <span className={styles.auditRollbackBadge}>↩ Rollback</span>}
+                      <span className={`${styles.auditStat} ${entry.failed > 0 ? styles.auditStatWarn : styles.auditStatOk}`}>
+                        {entry.applied} applied{entry.failed > 0 ? `, ${entry.failed} failed` : ''}
+                      </span>
+                      <button
+                        className={styles.chatHistoryDeleteBtn}
+                        onClick={() => setModal({ open: true, variant: 'confirm', title: 'Delete audit entry?', message: 'This will remove the log entry. It will not undo any changes in Google Ads.', confirmText: 'Delete', onConfirm: () => { deleteAuditEntry(entry.id); closeModal(); } })}
+                        title="Delete log entry"
+                      >✕</button>
+                    </div>
+                    <div className={styles.auditMutList}>
+                      {(entry.mutations || []).map(m => {
+                        const key    = `${entry.id}_${m.id}`;
+                        const isRollingBack = rollingBack[key];
+                        const result = rollbackResult[key];
+                        return (
+                          <div key={m.id} className={styles.auditMutRow}>
+                            <div className={styles.auditMutInfo}>
+                              <span className={styles.auditMutType}>{m.type}</span>
+                              <span className={styles.auditMutEntity}>{m.entityName}</span>
+                              {m.campaignName && <span className={styles.auditMutCampaign}>{m.campaignName}</span>}
+                              <span className={styles.auditMutDiff}>
+                                <span className={styles.diffBefore}>{m.beforeDisplay}</span>
+                                <span className={styles.diffArrow}>→</span>
+                                <span className={styles.diffAfter}>{m.afterDisplay}</span>
+                              </span>
+                            </div>
+                            <div className={styles.auditMutActions}>
+                              {result === 'ok' && <span className={styles.auditRollbackOk}>✓ Rolled back</span>}
+                              {result && result !== 'ok' && <span className={styles.auditRollbackErr} title={result}>✗ Failed</span>}
+                              {entry.type !== 'rollback' && (
+                                <button
+                                  className={styles.auditRollbackBtn}
+                                  onClick={() => setModal({
+                                    open: true, variant: 'confirm',
+                                    title: 'Roll back this change?',
+                                    message: `This will revert "${m.entityName}" from ${m.afterDisplay} back to ${m.beforeDisplay} in Google Ads immediately.`,
+                                    confirmText: 'Roll Back',
+                                    onConfirm: () => { handleRollback(entry.id, m.id); closeModal(); },
+                                  })}
+                                  disabled={isRollingBack || result === 'ok'}
+                                >
+                                  {isRollingBack ? '…' : '↩ Rollback'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Bottom-center Account Optimizer composer (resizable, centered name, controls) */}
       <div className={styles.composerOuter}>
         {activeChatId && (
@@ -1895,6 +2034,13 @@ export default function AdsAccountsPage() {
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 {optSessions.length > 0 && <span className={styles.optHistoryCount}>{optSessions.length}</span>}
+              </button>
+              <button
+                title="Audit log — view & rollback applied changes"
+                onClick={() => { setAuditModalOpen(true); loadAuditLog(); }}
+                className={styles.optHistoryBtn}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
               </button>
               <button
                 title="Shrink"
