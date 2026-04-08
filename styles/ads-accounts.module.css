@@ -1,36 +1,38 @@
 /* ── Sidebar ── */
-.sidebarBadgeOuter {
-  justify-content: space-between;
-}
-
-.sidebarBadgeInner {
+/* Saved prompt meta (category + label) */
+.savedPromptMeta {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
-.importBtn {
-  background: var(--input-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 6px;
-  padding: 5px 9px;
-  cursor: pointer;
-  color: var(--muted);
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 0.76rem;
-  flex-shrink: 0;
+.savedPromptCategory {
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: rgba(99, 102, 241, 0.12);
+  color: #6366f1;
+  padding: 4px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  align-self: flex-start;
 }
 
-.reloadCacheBtn {
-  background: var(--input-bg);
+.savedPromptLabel {
+  font-size: 0.9rem;
+  font-weight: 700;
   color: var(--foreground);
-  border: 1px solid var(--card-border);
+  line-height: 1.2;
+  margin: 0;
+  padding: 0;
+  flex: 1 1 220px;
+  word-break: break-word;
 }
 
-.syncedAt {
-  font-size: 0.72rem;
+.savedPromptPreview {
   color: var(--muted);
   margin-top: 9px;
   line-height: 1.5;
@@ -195,8 +197,12 @@
 
 .drillLink:focus,
 .drillLink:hover {
-  text-decoration: underline;
+  text-decoration: none;
   background: none;
+}
+
+.drillLinkHover {
+    filter: brightness(1.1);
 }
 
 .drillArrow {
@@ -226,7 +232,8 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 0.8rem;
-  border-left: 3px solid var(--accent, #6366f1);
+  /* border-left: 3px solid var(--accent, #6366f1); */
+  margin-left: 15px;
 }
 
 .drillTable thead tr {
@@ -311,6 +318,131 @@
   font-size: 0.7rem;
   color: var(--muted);
 }
+
+/* ── Campaign detail tabs (Ad Groups / Keywords / Search Terms) ── */
+.drillTabBar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border-bottom: 2px solid var(--card-border);
+  padding: 0 12px;
+  background: rgba(99, 102, 241, 0.02);
+}
+
+.drillTab {
+  padding: 7px 16px 6px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  background: none;
+  color: var(--muted);
+  font-size: 0.77rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.13s, border-color 0.13s;
+  white-space: nowrap;
+}
+
+.drillTab:hover {
+  color: var(--foreground);
+}
+
+.drillTabActive {
+  color: var(--accent, #6366f1);
+  border-bottom-color: var(--accent, #6366f1);
+}
+
+/* keyword inline text filter */
+.drillSearchRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px 4px;
+  border-bottom: 1px solid var(--card-border);
+}
+
+.drillSearchInput {
+  flex: 1;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--card-border);
+  background: var(--input-bg, var(--card-bg));
+  color: var(--foreground);
+  font-size: 0.78rem;
+}
+
+.drillSearchInput:focus {
+  outline: none;
+  border-color: var(--accent, #6366f1);
+}
+
+/* keyword / search-term text */
+.kwText {
+  font-weight: 600;
+  font-size: 0.82rem;
+}
+
+/* match type badges */
+.matchBadge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.matchEXACT   { background: rgba(22, 163, 74, 0.12); color: #16a34a; }
+.matchPHRASE  { background: rgba(99, 102, 241, 0.12); color: #6366f1; }
+.matchBROAD   { background: rgba(234, 179, 8, 0.12);  color: #a16207; }
+
+/* Quality score cells */
+.qsCell { text-align: center; font-weight: 700; }
+.qsHigh { color: #16a34a; }
+.qsMid  { color: #a16207; }
+.qsLow  { color: #dc2626; }
+
+/* Ad preview cards inside the nested drillTable */
+.adPreviewCell {
+  min-width: 220px;
+  max-width: 380px;
+}
+
+.adPreviewHeadline {
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: var(--foreground);
+  line-height: 1.3;
+}
+
+.adPreviewDesc {
+  font-size: 0.74rem;
+  color: var(--muted);
+  margin-top: 2px;
+  line-height: 1.35;
+}
+
+.adPreviewMore {
+  font-size: 0.68rem;
+  color: var(--accent, #6366f1);
+  margin-top: 2px;
+}
+
+.adUrlCell {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.73rem;
+}
+
+.adUrlLink {
+  color: var(--accent, #6366f1);
+  text-decoration: none;
+}
+
+.adUrlLink:hover { text-decoration: underline; }
 
 .accountFlags {
   display: flex;
@@ -1128,7 +1260,7 @@
 
 .savedPromptItem {
   /* background: var(--input-bg); */
-  background: var(--saved-prompt-bg);
+  /* background: var(--saved-prompt-bg); */
   border: 1px solid var(--card-border);
   border-radius: 8px;
   padding: 9px 10px 7px;
@@ -1186,34 +1318,36 @@
 
 .savedPromptMeta {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 4px;
-  flex-wrap: nowrap;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
   min-width: 0;
-  overflow: hidden;
 }
 
 .savedPromptCategory {
-  font-size: 0.65rem;
+  font-size: 0.68rem;
   font-weight: 700;
   background: rgba(99, 102, 241, 0.12);
   color: #6366f1;
-  padding: 1px 6px;
+  padding: 4px 8px;
   border-radius: 10px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  align-self: flex-start;
 }
 
 .savedPromptLabel {
-  font-size: 0.82rem;
-  font-weight: 600;
+  font-size: 0.95rem;
+  font-weight: 700;
   color: var(--foreground);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-  padding-bottom: 10px;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  flex: 1 1 100%;
+  margin: 0;
+  padding: 0;
 }
 
 .savedPromptPreview {
@@ -1250,9 +1384,13 @@
   background: var(--card-border);
 }
 
+.savedPromptBtn:focus {
+  background: transparent;
+}
+
 .savedPromptBtnSend {
-  background: rgba(99, 102, 241, 0.1);
-  border-color: rgba(99, 102, 241, 0.3);
+  /* background: rgba(99, 102, 241, 0.1); */
+  /* border-color: rgba(99, 102, 241, 0.3); */
   color: #6366f1;
 }
 
@@ -1276,6 +1414,24 @@
   color: var(--danger, #ef4444);
   background: rgba(239, 68, 68, 0.08);
   border-color: rgba(239, 68, 68, 0.25);
+}
+
+/* small icon-style edit button for saved prompts */
+.savedPromptEdit {
+  padding: 4px 8px;
+  font-size: 0.85rem;
+  border-radius: 6px;
+  border: 1px solid var(--card-border);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  line-height: 1;
+  transition: color 0.13s, background 0.13s;
+}
+.savedPromptEdit:hover {
+  color: var(--accent, #6366f1);
+  background: rgba(99, 102, 241, 0.06);
+  border-color: rgba(99, 102, 241, 0.12);
 }
 
 /* ── Save a Prompt form ── */

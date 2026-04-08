@@ -16,6 +16,7 @@ export default function AppModal({
   inputPlaceholder = '',
   inputValue = '',
   onInputChange,
+  multiline = false,
   onConfirm,
   onCancel,
 }) {
@@ -43,14 +44,25 @@ export default function AppModal({
         {title && <div className="modal-title">{title}</div>}
         {message && <div className="modal-message">{message}</div>}
         {variant === 'input' && (
-          <input
-            ref={inputRef}
-            className="modal-input"
-            type="text"
-            placeholder={inputPlaceholder}
-            value={inputValue}
-            onChange={(e) => onInputChange?.(e.target.value)}
-          />
+          multiline ? (
+            <textarea
+              ref={inputRef}
+              className="modal-input"
+              placeholder={inputPlaceholder}
+              value={inputValue}
+              onChange={(e) => onInputChange?.(e.target.value)}
+              rows={8}
+            />
+          ) : (
+            <input
+              ref={inputRef}
+              className="modal-input"
+              type="text"
+              placeholder={inputPlaceholder}
+              value={inputValue}
+              onChange={(e) => onInputChange?.(e.target.value)}
+            />
+          )
         )}
         <div className="modal-actions">
           {variant !== 'alert' && (

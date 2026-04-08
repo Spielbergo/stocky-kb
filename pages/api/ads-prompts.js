@@ -31,5 +31,22 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true });
   }
 
+  // PUT — update an existing prompt
+  if (req.method === 'PUT') {
+    const { id, label, text, category } = req.body || {};
+    if (!id) return res.status(400).json({ error: 'id is required' });
+    const docRef = db.collection('ads_prompts').doc(String(id));
+    const snap = await docRef.get();
+    if (!snap.exists) return res.status(404).json({ error: 'prompt not found' });
+    const updated = {};
+    if (label !== undefined) updated.label = String(label).trim();
+    if (text !== undefined) updated.text = String(text).trim();
+    if (category !== undefined) updated.category = String(category).trim();
+    if (Object.keys(updated).length === 0) return res.status(400).json({ error: 'nothing to update' });
+    await docRef.update(updated);
+    const newSnap = await docRef.get();
+    return res.status(200).json({ prompt: { id: newSnap.id, ...newSnap.data() } });
+  }
+
   return res.status(405).end();
 }

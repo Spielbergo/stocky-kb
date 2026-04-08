@@ -104,16 +104,28 @@ export default function AdsAccountsPage() {
   const [sortBy, setSortBy]       = useState('name');
   const [sortDir, setSortDir]     = useState('asc');
   const [modal, setModal]         = useState({ open: false });
+  const [modalInputValue, setModalInputValue] = useState('');
+  const modalInputValueRef = useRef('');
   const [toastMsg, setToastMsg]   = useState('');
 
   // ── Campaign / Ad drill-down ──────────────────────────────────────────────
-  const [expandedAccountId, setExpandedAccountId]     = useState(null);
-  const [campaignRows, setCampaignRows]               = useState({});   // { [accountId]: campaign[] }
-  const [campaignLoading, setCampaignLoading]         = useState(null); // accountId being loaded
-  const [expandedCampaignId, setExpandedCampaignId]   = useState(null);
-  const [adRows, setAdRows]                           = useState({});   // { [campaignId]: ad[] }
-  const [adLoading, setAdLoading]                     = useState(null); // campaignId being loaded
-  const [campaignStatusFilter, setCampaignStatusFilter] = useState('ALL'); // ACTIVE | PAUSED | REMOVED | ALL
+  const [expandedAccountId, setExpandedAccountId]       = useState(null);
+  const [campaignRows, setCampaignRows]                 = useState({});   // { [accountId]: campaign[] }
+  const [campaignLoading, setCampaignLoading]           = useState(null); // accountId being loaded
+  const [expandedCampaignId, setExpandedCampaignId]     = useState(null);
+  const [campaignTab, setCampaignTab]                   = useState({});   // { [campaignId]: 'adGroups'|'keywords'|'searchTerms' }
+  const [adGroupRows, setAdGroupRows]                   = useState({});   // { [campaignId]: adGroup[] }
+  const [adGroupLoading, setAdGroupLoading]             = useState(null); // campaignId being loaded
+  const [keywordRows, setKeywordRows]                   = useState({});   // { [campaignId]: keyword[] }
+  const [keywordLoading, setKeywordLoading]             = useState(null);
+  const [searchTermRows, setSearchTermRows]             = useState({});   // { [campaignId]: searchTerm[] }
+  const [searchTermLoading, setSearchTermLoading]       = useState(null);
+  const [expandedAdGroupId, setExpandedAdGroupId]       = useState(null);
+  const [adRows, setAdRows]                             = useState({});   // { [adGroupId]: ad[] }
+  const [adLoading, setAdLoading]                       = useState(null); // adGroupId being loaded
+  const [campaignStatusFilter, setCampaignStatusFilter] = useState('ACTIVE'); // ACTIVE | PAUSED | REMOVED | ALL
+  const [kwSearchFilter, setKwSearchFilter]             = useState('');   // filter keywords by text
+  const [sidebarCollapsed, setSidebarCollapsed]         = useState(false);
 
   const toast = (msg) => { setToastMsg(msg); setTimeout(() => setToastMsg(''), 2500); };
   const closeModal  = () => setModal({ open: false });
@@ -346,32 +358,90 @@ export default function AdsAccountsPage() {
     finally { setCampaignLoading(null); }
   };
 
-  const toggleAds = async (account, campaign) => {
-    if (expandedCampaignId === campaign.id) {
+  // Open a campaign's detail row; set default tab and trigger initial data load
+  const toggleCampaignDetail = async (account, campaign, tab) => {
+    const nextTab = tab || campaignTab[campaign.id] || 'adGroups';
+    if (expandedCampaignId === campaign.id && (!tab || campaignTab[campaign.id] === nextTab)) {
       setExpandedCampaignId(null);
       return;
     }
     setExpandedCampaignId(campaign.id);
-    if (adRows[campaign.id]?.length > 0) return; // already loaded with data
+    setCampaignTab(prev => ({ ...prev, [campaign.id]: nextTab }));
+    setExpandedAdGroupId(null);
+    await loadCampaignTabData(account, campaign, nextTab);
+  };
+
+  const loadCampaignTabData = async (account, campaign, tab) => {
     const { from, to } = computeDateRange(datePreset, customFrom, customTo);
     if (!from || !to) return;
-    setAdLoading(campaign.id);
+    const qs = `accountId=${account.id}&campaignId=${campaign.id}&dateFrom=${from}&dateTo=${to}&includePaused=${includePaused ? '1' : '0'}`;
+
+    if (tab === 'adGroups' && !adGroupRows[campaign.id]) {
+      setAdGroupLoading(campaign.id);
+      try {
+        const res = await fetch(`/api/ads-campaigns?${qs}&view=adGroups`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed');
+        setAdGroupRows(prev => ({ ...prev, [campaign.id]: data.adGroups || [] }));
+      } catch (e) { toast(e.message); }
+      finally { setAdGroupLoading(null); }
+    }
+    if (tab === 'keywords' && !keywordRows[campaign.id]) {
+      setKeywordLoading(campaign.id);
+      try {
+        const res = await fetch(`/api/ads-campaigns?${qs}&view=keywords`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed');
+        setKeywordRows(prev => ({ ...prev, [campaign.id]: data.keywords || [] }));
+      } catch (e) { toast(e.message); }
+      finally { setKeywordLoading(null); }
+    }
+    if (tab === 'searchTerms' && !searchTermRows[campaign.id]) {
+      setSearchTermLoading(campaign.id);
+      try {
+        const res = await fetch(`/api/ads-campaigns?${qs}&view=searchTerms`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed');
+        setSearchTermRows(prev => ({ ...prev, [campaign.id]: data.searchTerms || [] }));
+      } catch (e) { toast(e.message); }
+      finally { setSearchTermLoading(null); }
+    }
+  };
+
+  const switchCampaignTab = (account, campaign, tab) => {
+    setCampaignTab(prev => ({ ...prev, [campaign.id]: tab }));
+    setExpandedAdGroupId(null);
+    loadCampaignTabData(account, campaign, tab);
+  };
+
+  // Load ads for a specific ad group
+  const toggleAdGroupAds = async (account, campaign, adGroup) => {
+    if (expandedAdGroupId === adGroup.id) { setExpandedAdGroupId(null); return; }
+    setExpandedAdGroupId(adGroup.id);
+    if (adRows[adGroup.id]?.length > 0) return;
+    const { from, to } = computeDateRange(datePreset, customFrom, customTo);
+    if (!from || !to) return;
+    setAdLoading(adGroup.id);
     try {
       const res = await fetch(
-        `/api/ads-campaigns?accountId=${account.id}&campaignId=${campaign.id}&dateFrom=${from}&dateTo=${to}&includePaused=${includePaused ? '1' : '0'}`
+        `/api/ads-campaigns?accountId=${account.id}&campaignId=${campaign.id}&adGroupId=${adGroup.id}&dateFrom=${from}&dateTo=${to}&includePaused=${includePaused ? '1' : '0'}&view=ads`
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load ads');
-      setAdRows(prev => ({ ...prev, [campaign.id]: data.ads || [] }));
-    } catch (e) { toast(e.message || 'Failed to load ads'); }
+      setAdRows(prev => ({ ...prev, [adGroup.id]: data.ads || [] }));
+    } catch (e) { toast(e.message); }
     finally { setAdLoading(null); }
   };
 
-  // Invalidate campaign/ad cache when date range or includePaused changes
+  // Invalidate all drill caches when date range or includePaused changes
   useEffect(() => {
     setCampaignRows({});
+    setAdGroupRows({});
+    setKeywordRows({});
+    setSearchTermRows({});
     setAdRows({});
     setExpandedCampaignId(null);
+    setExpandedAdGroupId(null);
   }, [datePreset, customFrom, customTo, includePaused]);
 
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -681,11 +751,13 @@ export default function AdsAccountsPage() {
         <div className="admin-layout">
 
           {/* ── Sidebar ── */}
-          <aside className="admin-sidebar">
+          <aside className={`admin-sidebar${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
 
-            <div className={`sidebar-profile-badge ${styles.sidebarBadgeOuter}`}>
-              <div className={styles.sidebarBadgeInner}>
-                <div className="sidebar-profile-icon">📊</div>
+            <div className="sidebar-profile-badge" style={{ justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div className="sidebar-profile-icon">
+                  <svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                </div>
                 <div>
                   <div className="sidebar-profile-label">Google Ads</div>
                   <div className="sidebar-profile-sub">Account Manager</div>
@@ -694,10 +766,17 @@ export default function AdsAccountsPage() {
               <button
                 onClick={() => { setCsvModal({ open: true }); setCsvModalError(null); setCsvModalFile(null); setCsvModalHeaders([]); setCsvModalMapping({}); }}
                 title="Import CSV"
-                className={styles.importBtn}
+                style={{ background: 'var(--input-bg)', border: '1px solid var(--card-border)', borderRadius: 6, padding: '5px 9px', cursor: 'pointer', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.76rem', flexShrink: 0 }}
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                 Import
+              </button>
+              <button
+                onClick={() => setSidebarCollapsed(true)}
+                title="Collapse sidebar"
+                style={{ background: 'var(--input-bg)', border: '1px solid var(--card-border)', borderRadius: 6, padding: '5px 7px', cursor: 'pointer', color: 'var(--muted)', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
               </button>
             </div>
 
@@ -886,6 +965,43 @@ export default function AdsAccountsPage() {
                             title="Insert and send"
                           >Load + Send</button>
                           <button
+                            className={styles.savedPromptEdit}
+                            onClick={() => {
+                              modalInputValueRef.current = p.text || '';
+                              setModalInputValue(p.text || '');
+                              setModal({
+                                open: true,
+                                variant: 'input',
+                                title: `Edit prompt: ${p.label}`,
+                                inputPlaceholder: 'Edit prompt text...',
+                                inputValue: p.text || '',
+                                multiline: true,
+                                onConfirm: async () => {
+                                  const newText = modalInputValueRef.current || '';
+                                  if (newText.trim() === (p.text || '').trim()) { closeModal(); return; }
+                                  try {
+                                    const res = await fetch('/api/ads-prompts', {
+                                      method: 'PUT',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ id: p.id, text: newText })
+                                    });
+                                    const json = await res.json();
+                                    if (res.ok) {
+                                      setSavedPrompts(prev => prev.map(pp => pp.id === p.id ? { ...pp, text: json.prompt.text } : pp));
+                                      toast('Prompt updated');
+                                      closeModal();
+                                    } else {
+                                      toast(json.error || 'Update failed');
+                                    }
+                                  } catch (e) { toast('Update failed'); }
+                                },
+                                onInputChange: v => { modalInputValueRef.current = v; setModalInputValue(v); }
+                              });
+                            }}
+                            title="Edit prompt"
+                            aria-label="Edit prompt"
+                          >✎</button>
+                          <button
                             className={styles.savedPromptDelete}
                             onClick={() => setModal({ open: true, variant: 'confirm', title: 'Delete prompt?', message: `"${p.label}" will be permanently deleted.`, confirmText: 'Delete', onConfirm: () => { deletePrompt(p.id); closeModal(); } })}
                             title="Delete prompt"
@@ -902,6 +1018,16 @@ export default function AdsAccountsPage() {
 
           {/* ── Main ── */}
           <main className="admin-main">
+
+            {sidebarCollapsed && (
+              <button
+                onClick={() => setSidebarCollapsed(false)}
+                title="Expand sidebar"
+                style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', zIndex: 10, background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderLeft: 'none', borderRadius: '0 6px 6px 0', padding: '10px 5px', cursor: 'pointer', color: 'var(--muted)', display: 'flex', alignItems: 'center' }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+              </button>
+            )}
 
             <div className={styles.pageHeader}>
               <div>
@@ -1180,26 +1306,33 @@ export default function AdsAccountsPage() {
                                         <th>Campaign</th>
                                         <th>Status</th>
                                         <th>Type</th>
+                                        <th>Bidding</th>
                                         <th>Impressions</th>
                                         <th>Clicks</th>
                                         <th>CTR</th>
                                         <th>Cost</th>
+                                        <th>CPC</th>
                                         <th>Conv.</th>
+                                        <th>IS%</th>
                                       </tr>
                                     </thead>
                                     <tbody>
                                       {filteredCampaigns.map(c => {
                                         const cm = c.metrics || {};
                                         const cExpanded = expandedCampaignId === c.id;
-                                        const ads = adRows[c.id] || [];
+                                        const activeTab = campaignTab[c.id] || 'adGroups';
+                                        const agRows    = adGroupRows[c.id] || [];
+                                        const kwRows    = keywordRows[c.id] || [];
+                                        const stRows    = searchTermRows[c.id] || [];
+                                        const isShare   = cm.searchImprShare != null ? (parseFloat(cm.searchImprShare) * 100).toFixed(1) + '%' : '—';
                                         return (
                                           <React.Fragment key={c.id}>
-                                            <tr key={c.id}>
+                                            <tr>
                                               <td>
                                                 <button
                                                   className={styles.drillLink}
-                                                  onClick={() => toggleAds(a, c)}
-                                                  title={cExpanded ? 'Collapse ads' : 'View ads'}
+                                                  onClick={() => toggleCampaignDetail(a, c, null)}
+                                                  title={cExpanded ? 'Collapse' : 'View ad groups, keywords & search terms'}
                                                 >
                                                   <span className={styles.drillArrow}>{cExpanded ? '▾' : '▸'}</span>
                                                   {c.name}
@@ -1207,53 +1340,238 @@ export default function AdsAccountsPage() {
                                               </td>
                                               <td><StatusBadge status={c.status} /></td>
                                               <td className={styles.drillMeta}>{c.channelType}</td>
+                                              <td className={styles.drillMeta}>{c.biddingStrategy}</td>
                                               <td>{cm.impressions ? fmtNum(cm.impressions) : '—'}</td>
                                               <td>{cm.clicks ? fmtNum(cm.clicks) : '—'}</td>
                                               <td>{fmtCTR(cm.impressions, cm.clicks)}</td>
                                               <td>{cm.costMicros ? fmtCost(cm.costMicros, a.currencyCode) : '—'}</td>
+                                              <td>{cm.avgCpcMicros ? fmtCost(cm.avgCpcMicros, a.currencyCode) : fmtCPC(cm.costMicros, cm.clicks, a.currencyCode)}</td>
                                               <td>{cm.conversions ? fmtNum(Math.round(cm.conversions)) : '—'}</td>
+                                              <td className={styles.drillMeta}>{isShare}</td>
                                             </tr>
                                             {cExpanded && (
                                               <tr className={styles.drillRow}>
-                                                <td colSpan={8} className={styles.drillCell}>
-                                                  {adLoading === c.id ? (
-                                                    <div className={styles.drillLoading}>Loading ads…</div>
-                                                  ) : ads.length === 0 ? (
-                                                    <div className={styles.drillEmpty}>No ads found for this period.</div>
-                                                  ) : (
+                                                <td colSpan={11} className={styles.drillCell}>
+                                                  {/* Tab bar */}
+                                                  <div className={styles.drillTabBar}>
+                                                    {[['adGroups','Ad Groups'],['keywords','Keywords'],['searchTerms','Search Terms']].map(([tab,label]) => (
+                                                      <button
+                                                        key={tab}
+                                                        className={`${styles.drillTab}${activeTab === tab ? ` ${styles.drillTabActive}` : ''}`}
+                                                        onClick={() => switchCampaignTab(a, c, tab)}
+                                                      >{label}</button>
+                                                    ))}
+                                                  </div>
+
+                                                  {/* ── Ad Groups tab ── */}
+                                                  {activeTab === 'adGroups' && (
+                                                    adGroupLoading === c.id ? <div className={styles.drillLoading}>Loading ad groups…</div> :
+                                                    agRows.length === 0 ? <div className={styles.drillEmpty}>No ad groups found.</div> :
                                                     <table className={styles.drillTable}>
-                                                      <thead>
-                                                        <tr>
-                                                          <th>Ad</th>
-                                                          <th>Ad Group</th>
-                                                          <th>Type</th>
-                                                          <th>Status</th>
-                                                          <th>Impressions</th>
-                                                          <th>Clicks</th>
-                                                          <th>CTR</th>
-                                                          <th>Cost</th>
-                                                          <th>Conv.</th>
-                                                        </tr>
-                                                      </thead>
+                                                      <thead><tr>
+                                                        <th>Ad Group</th>
+                                                        <th>Status</th>
+                                                        <th>Type</th>
+                                                        <th>CPC Bid</th>
+                                                        <th>Impressions</th>
+                                                        <th>Clicks</th>
+                                                        <th>CTR</th>
+                                                        <th>Cost</th>
+                                                        <th>Avg CPC</th>
+                                                        <th>Conv.</th>
+                                                      </tr></thead>
                                                       <tbody>
-                                                        {ads.map(ad => {
-                                                          const am = ad.metrics || {};
+                                                        {agRows.map(ag => {
+                                                          const agm = ag.metrics || {};
+                                                          const agExpanded = expandedAdGroupId === ag.id;
+                                                          const ads = adRows[ag.id] || [];
                                                           return (
-                                                            <tr key={ad.id}>
-                                                              <td>{ad.name || `Ad ${ad.id}`}</td>
-                                                              <td className={styles.drillMeta}>{ad.adGroupName}</td>
-                                                              <td className={styles.drillMeta}>{ad.type}</td>
-                                                              <td><StatusBadge status={ad.status} /></td>
-                                                              <td>{am.impressions ? fmtNum(am.impressions) : '—'}</td>
-                                                              <td>{am.clicks ? fmtNum(am.clicks) : '—'}</td>
-                                                              <td>{fmtCTR(am.impressions, am.clicks)}</td>
-                                                              <td>{am.costMicros ? fmtCost(am.costMicros, a.currencyCode) : '—'}</td>
-                                                              <td>{am.conversions ? fmtNum(Math.round(am.conversions)) : '—'}</td>
-                                                            </tr>
+                                                            <React.Fragment key={ag.id}>
+                                                              <tr>
+                                                                <td>
+                                                                  <button
+                                                                    className={styles.drillLink}
+                                                                    onClick={() => toggleAdGroupAds(a, c, ag)}
+                                                                    title={agExpanded ? 'Collapse ads' : 'View ads'}
+                                                                  >
+                                                                    <span className={styles.drillArrow}>{agExpanded ? '▾' : '▸'}</span>
+                                                                    {ag.name}
+                                                                  </button>
+                                                                </td>
+                                                                <td><StatusBadge status={ag.status} /></td>
+                                                                <td className={styles.drillMeta}>{ag.type}</td>
+                                                                <td className={styles.drillMeta}>{ag.bidMicros ? fmtCost(ag.bidMicros, a.currencyCode) : '—'}</td>
+                                                                <td>{agm.impressions ? fmtNum(agm.impressions) : '—'}</td>
+                                                                <td>{agm.clicks ? fmtNum(agm.clicks) : '—'}</td>
+                                                                <td>{fmtCTR(agm.impressions, agm.clicks)}</td>
+                                                                <td>{agm.costMicros ? fmtCost(agm.costMicros, a.currencyCode) : '—'}</td>
+                                                                <td>{agm.avgCpcMicros ? fmtCost(agm.avgCpcMicros, a.currencyCode) : '—'}</td>
+                                                                <td>{agm.conversions ? fmtNum(Math.round(agm.conversions)) : '—'}</td>
+                                                              </tr>
+                                                              {agExpanded && (
+                                                                <tr className={styles.drillRow}>
+                                                                  <td colSpan={10} className={styles.drillCell}>
+                                                                    {adLoading === ag.id ? (
+                                                                      <div className={styles.drillLoading}>Loading ads…</div>
+                                                                    ) : ads.length === 0 ? (
+                                                                      <div className={styles.drillEmpty}>No ads found.</div>
+                                                                    ) : (
+                                                                      <table className={styles.drillTable}>
+                                                                        <thead><tr>
+                                                                          <th>Ad Preview</th>
+                                                                          <th>Type</th>
+                                                                          <th>Status</th>
+                                                                          <th>Policy</th>
+                                                                          <th>Final URL</th>
+                                                                          <th>Impressions</th>
+                                                                          <th>Clicks</th>
+                                                                          <th>CTR</th>
+                                                                          <th>Cost</th>
+                                                                          <th>Avg CPC</th>
+                                                                          <th>Conv.</th>
+                                                                        </tr></thead>
+                                                                        <tbody>
+                                                                          {ads.map(ad => {
+                                                                            const am = ad.metrics || {};
+                                                                            const h1 = ad.headlines?.[0] || ad.name || `Ad ${ad.id}`;
+                                                                            const h2 = ad.headlines?.[1] || '';
+                                                                            const desc = ad.descriptions?.[0] || '';
+                                                                            return (
+                                                                              <tr key={ad.id}>
+                                                                                <td className={styles.adPreviewCell}>
+                                                                                  <div className={styles.adPreviewHeadline}>{h1}{h2 ? ` | ${h2}` : ''}</div>
+                                                                                  {desc && <div className={styles.adPreviewDesc}>{desc}</div>}
+                                                                                  {ad.headlines?.length > 2 && <div className={styles.adPreviewMore}>+{ad.headlines.length - 2} more headlines · {ad.descriptions?.length || 0} descriptions</div>}
+                                                                                </td>
+                                                                                <td className={styles.drillMeta}>{ad.type?.replace('_',' ')}</td>
+                                                                                <td><StatusBadge status={ad.status} /></td>
+                                                                                <td className={styles.drillMeta}>{ad.approvalStatus || '—'}</td>
+                                                                                <td className={styles.adUrlCell} title={ad.finalUrl}>{ad.finalUrl ? <a href={ad.finalUrl} target="_blank" rel="noreferrer" className={styles.adUrlLink}>{ad.finalUrl.replace(/^https?:\/\//,'').slice(0,40)}{ad.finalUrl.length > 50 ? '…' : ''}</a> : '—'}</td>
+                                                                                <td>{am.impressions ? fmtNum(am.impressions) : '—'}</td>
+                                                                                <td>{am.clicks ? fmtNum(am.clicks) : '—'}</td>
+                                                                                <td>{fmtCTR(am.impressions, am.clicks)}</td>
+                                                                                <td>{am.costMicros ? fmtCost(am.costMicros, a.currencyCode) : '—'}</td>
+                                                                                <td>{am.avgCpcMicros ? fmtCost(am.avgCpcMicros, a.currencyCode) : '—'}</td>
+                                                                                <td>{am.conversions ? fmtNum(Math.round(am.conversions)) : '—'}</td>
+                                                                              </tr>
+                                                                            );
+                                                                          })}
+                                                                        </tbody>
+                                                                      </table>
+                                                                    )}
+                                                                  </td>
+                                                                </tr>
+                                                              )}
+                                                            </React.Fragment>
                                                           );
                                                         })}
                                                       </tbody>
                                                     </table>
+                                                  )}
+
+                                                  {/* ── Keywords tab ── */}
+                                                  {activeTab === 'keywords' && (
+                                                    keywordLoading === c.id ? <div className={styles.drillLoading}>Loading keywords…</div> :
+                                                    kwRows.length === 0 ? <div className={styles.drillEmpty}>No keywords found for this period.</div> : (() => {
+                                                      const filteredKws = kwSearchFilter
+                                                        ? kwRows.filter(k => k.text.toLowerCase().includes(kwSearchFilter.toLowerCase()))
+                                                        : kwRows;
+                                                      return (
+                                                        <>
+                                                          <div className={styles.drillSearchRow}>
+                                                            <input
+                                                              className={styles.drillSearchInput}
+                                                              placeholder="Filter keywords…"
+                                                              value={kwSearchFilter}
+                                                              onChange={e => setKwSearchFilter(e.target.value)}
+                                                            />
+                                                            <span className={styles.drillFilterCount}>{filteredKws.length} of {kwRows.length}</span>
+                                                          </div>
+                                                          <table className={styles.drillTable}>
+                                                            <thead><tr>
+                                                              <th>Keyword</th>
+                                                              <th>Match</th>
+                                                              <th>Ad Group</th>
+                                                              <th>Status</th>
+                                                              <th>QS</th>
+                                                              <th>Pred. CTR</th>
+                                                              <th>Ad Rel.</th>
+                                                              <th>LP Exp.</th>
+                                                              <th>Bid</th>
+                                                              <th>Impressions</th>
+                                                              <th>Clicks</th>
+                                                              <th>CTR</th>
+                                                              <th>Cost</th>
+                                                              <th>Avg CPC</th>
+                                                              <th>Conv.</th>
+                                                              <th>IS%</th>
+                                                            </tr></thead>
+                                                            <tbody>
+                                                              {filteredKws.map(kw => {
+                                                                const km = kw.metrics || {};
+                                                                const qs = kw.qualityScore != null ? kw.qualityScore : '—';
+                                                                const is = km.searchImprShare != null ? (parseFloat(km.searchImprShare)*100).toFixed(1)+'%' : '—';
+                                                                return (
+                                                                  <tr key={kw.id}>
+                                                                    <td className={styles.kwText}>{kw.text}</td>
+                                                                    <td><span className={`${styles.matchBadge} ${styles['match' + kw.matchType]}`}>{kw.matchType}</span></td>
+                                                                    <td className={styles.drillMeta}>{kw.adGroupName}</td>
+                                                                    <td><StatusBadge status={kw.status} /></td>
+                                                                    <td className={styles.qsCell}>{qs !== '—' ? <span className={styles[`qs${qs > 6 ? 'High' : qs > 3 ? 'Mid' : 'Low'}`]}>{qs}</span> : '—'}</td>
+                                                                    <td className={styles.drillMeta}>{kw.predictedCtr || '—'}</td>
+                                                                    <td className={styles.drillMeta}>{kw.adRelevance || '—'}</td>
+                                                                    <td className={styles.drillMeta}>{kw.landingPage || '—'}</td>
+                                                                    <td className={styles.drillMeta}>{kw.bidMicros ? fmtCost(kw.bidMicros, a.currencyCode) : '—'}</td>
+                                                                    <td>{km.impressions ? fmtNum(km.impressions) : '—'}</td>
+                                                                    <td>{km.clicks ? fmtNum(km.clicks) : '—'}</td>
+                                                                    <td>{fmtCTR(km.impressions, km.clicks)}</td>
+                                                                    <td>{km.costMicros ? fmtCost(km.costMicros, a.currencyCode) : '—'}</td>
+                                                                    <td>{km.avgCpcMicros ? fmtCost(km.avgCpcMicros, a.currencyCode) : '—'}</td>
+                                                                    <td>{km.conversions ? fmtNum(Math.round(km.conversions)) : '—'}</td>
+                                                                    <td className={styles.drillMeta}>{is}</td>
+                                                                  </tr>
+                                                                );
+                                                              })}
+                                                            </tbody>
+                                                          </table>
+                                                        </>
+                                                      );
+                                                    })()
+                                                  )}
+
+                                                  {/* ── Search Terms tab ── */}
+                                                  {activeTab === 'searchTerms' && (
+                                                    searchTermLoading === c.id ? <div className={styles.drillLoading}>Loading search terms…</div> :
+                                                    stRows.length === 0 ? <div className={styles.drillEmpty}>No search terms data found for this period.</div> : (
+                                                      <table className={styles.drillTable}>
+                                                        <thead><tr>
+                                                          <th>Search Term</th>
+                                                          <th>Status</th>
+                                                          <th>Ad Group</th>
+                                                          <th>Impressions</th>
+                                                          <th>Clicks</th>
+                                                          <th>CTR</th>
+                                                          <th>Cost</th>
+                                                          <th>Avg CPC</th>
+                                                          <th>Conv.</th>
+                                                        </tr></thead>
+                                                        <tbody>
+                                                          {stRows.map((st, i) => (
+                                                            <tr key={i}>
+                                                              <td className={styles.kwText}>{st.term}</td>
+                                                              <td className={styles.drillMeta}>{st.status}</td>
+                                                              <td className={styles.drillMeta}>{st.adGroupName}</td>
+                                                              <td>{st.impressions ? fmtNum(st.impressions) : '—'}</td>
+                                                              <td>{st.clicks ? fmtNum(st.clicks) : '—'}</td>
+                                                              <td>{fmtCTR(st.impressions, st.clicks)}</td>
+                                                              <td>{st.costMicros ? fmtCost(st.costMicros, a.currencyCode) : '—'}</td>
+                                                              <td>{st.avgCpcMicros ? fmtCost(st.avgCpcMicros, a.currencyCode) : '—'}</td>
+                                                              <td>{st.conversions ? fmtNum(Math.round(st.conversions)) : '—'}</td>
+                                                            </tr>
+                                                          ))}
+                                                        </tbody>
+                                                      </table>
+                                                    )
                                                   )}
                                                 </td>
                                               </tr>
@@ -1323,7 +1641,12 @@ export default function AdsAccountsPage() {
         </div>
       )}
 
-      <AppModal {...modal} onCancel={closeModal} />
+      <AppModal
+        {...modal}
+        onCancel={closeModal}
+        inputValue={modalInputValue}
+        onInputChange={v => { modalInputValueRef.current = v; setModalInputValue(v); }}
+      />
 
       {/* Bottom-center Account Optimizer composer (resizable, centered name, controls) */}
       <div className={styles.composerOuter}>
