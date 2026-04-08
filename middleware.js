@@ -6,6 +6,8 @@ const PROTECTED_PREFIXES = [
   '/api/ads-rollback',
   '/api/ads-optimize',
   '/api/ads-audit',
+  '/api/ads-negative-keyword',
+  '/api/qs-snapshot',
 ];
 
 export function middleware(request) {
@@ -37,5 +39,7 @@ export const config = {
     '/api/ads-rollback',
     '/api/ads-optimize',
     '/api/ads-audit',
+    '/api/ads-negative-keyword',
+    '/api/qs-snapshot',
   ],
 };

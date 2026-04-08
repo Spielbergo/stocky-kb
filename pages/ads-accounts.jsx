@@ -128,6 +128,18 @@ export default function AdsAccountsPage() {
   const [kwSearchFilter, setKwSearchFilter]             = useState('');   // filter keywords by text
   const [sidebarCollapsed, setSidebarCollapsed]         = useState(false);
 
+  // ── Campaign-level QS summary (loaded at account expand time) ───────────────
+  const [campaignQS, setCampaignQS] = useState({}); // { [accountId]: { [campaignId]: avgQS } }
+
+  // ── Negative keyword one-click ─────────────────────────────────────────────
+  const [addingNeg, setAddingNeg]   = useState({});  // { [key]: true } key = `${term}__${campaignId}`
+  const [addNegResult, setAddNegResult] = useState({}); // { [key]: 'ok' | errorMsg }
+
+  // ── QS Snapshots ─────────────────────────────────────────────────────────
+  const [qsSnapshots, setQsSnapshots]         = useState({});   // { [campaignId]: snapshot[] }
+  const [qsSnapLoading, setQsSnapLoading]     = useState(null); // campaignId being loaded
+  const [savingQsSnap, setSavingQsSnap]       = useState(null); // campaignId being saved
+
   const toast = (msg) => { setToastMsg(msg); setTimeout(() => setToastMsg(''), 2500); };
   const closeModal  = () => setModal({ open: false });
 
@@ -431,6 +443,28 @@ export default function AdsAccountsPage() {
   };
 
   // ── Drill-down handlers ────────────────────────────────────────────────────
+  const loadAccountQS = async (account) => {
+    if (campaignQS[account.id]) return; // already loaded
+    const cacheKey = `gads_qs_summary_${account.id}`;
+    const TTL = 12 * 60 * 60 * 1000; // 12 hours
+    try {
+      const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+      if (cached && Date.now() - cached.ts < TTL) {
+        setCampaignQS(prev => ({ ...prev, [account.id]: cached.summary }));
+        return;
+      }
+    } catch { /* ignore */ }
+    try {
+      const res = await fetch(
+        `/api/ads-campaigns?accountId=${account.id}&dateFrom=2000-01-01&dateTo=2000-01-01&view=keywordQSSummary`
+      );
+      const data = await res.json();
+      if (!res.ok) return; // silent — QS column just stays blank
+      setCampaignQS(prev => ({ ...prev, [account.id]: data.summary || {} }));
+      try { localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), summary: data.summary || {} })); } catch { /* storage full */ }
+    } catch { /* silent */ }
+  };
+
   const toggleCampaigns = async (account) => {
     if (expandedAccountId === account.id) {
       setExpandedAccountId(null);
@@ -439,6 +473,7 @@ export default function AdsAccountsPage() {
     }
     setExpandedAccountId(account.id);
     setExpandedCampaignId(null);
+    loadAccountQS(account); // fire-and-forget — populates Avg QS column
     if (campaignRows[account.id]?.length > 0) return; // already loaded with data
     const { from, to } = computeDateRange(datePreset, customFrom, customTo);
     if (!from || !to) return;
@@ -465,6 +500,10 @@ export default function AdsAccountsPage() {
     setCampaignTab(prev => ({ ...prev, [campaign.id]: nextTab }));
     setExpandedAdGroupId(null);
     await loadCampaignTabData(account, campaign, nextTab);
+    // Pre-fetch keywords in the background so QS is ready when the tab is opened
+    if (nextTab !== 'keywords' && nextTab !== 'wastedSpend') {
+      loadCampaignTabData(account, campaign, 'keywords');
+    }
   };
 
   const loadCampaignTabData = async (account, campaign, tab) => {
@@ -482,13 +521,24 @@ export default function AdsAccountsPage() {
       } catch (e) { toast(e.message); }
       finally { setAdGroupLoading(null); }
     }
-    if (tab === 'keywords' && !keywordRows[campaign.id]) {
+    if ((tab === 'keywords' || tab === 'wastedSpend') && !keywordRows[campaign.id]) {
       setKeywordLoading(campaign.id);
       try {
-        const res = await fetch(`/api/ads-campaigns?${qs}&view=keywords`);
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed');
-        setKeywordRows(prev => ({ ...prev, [campaign.id]: data.keywords || [] }));
+        const cacheKey = `gads_kw_${account.id}_${campaign.id}_${from}_${to}_${includePaused ? '1' : '0'}`;
+        const TTL = 24 * 60 * 60 * 1000; // 24 hours
+        let keywords = null;
+        try {
+          const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+          if (cached && Date.now() - cached.ts < TTL) keywords = cached.keywords;
+        } catch { /* ignore bad cache entries */ }
+        if (!keywords) {
+          const res = await fetch(`/api/ads-campaigns?${qs}&view=keywords`);
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed');
+          keywords = data.keywords || [];
+          try { localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), keywords })); } catch { /* storage full */ }
+        }
+        setKeywordRows(prev => ({ ...prev, [campaign.id]: keywords }));
       } catch (e) { toast(e.message); }
       finally { setKeywordLoading(null); }
     }
@@ -502,12 +552,84 @@ export default function AdsAccountsPage() {
       } catch (e) { toast(e.message); }
       finally { setSearchTermLoading(null); }
     }
+    if (tab === 'qsTrend') {
+      loadQsSnapshots(account, campaign);
+    }
   };
 
   const switchCampaignTab = (account, campaign, tab) => {
     setCampaignTab(prev => ({ ...prev, [campaign.id]: tab }));
     setExpandedAdGroupId(null);
     loadCampaignTabData(account, campaign, tab);
+  };
+
+  const handleAddNegative = async (account, campaignId, term) => {
+    const key = `${term}__${campaignId}`;
+    setAddingNeg(prev => ({ ...prev, [key]: true }));
+    try {
+      const res = await adminFetch('/api/ads-negative-keyword', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: account.id, campaignId, term, matchType: 'EXACT' }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed');
+      setAddNegResult(prev => ({ ...prev, [key]: 'ok' }));
+    } catch (e) {
+      setAddNegResult(prev => ({ ...prev, [key]: e.message || 'Error' }));
+    } finally {
+      setAddingNeg(prev => ({ ...prev, [key]: false }));
+    }
+  };
+
+  const saveQsSnapshot = async (account, campaign, kwRows) => {
+    if (!kwRows?.length) return;
+    setSavingQsSnap(campaign.id);
+    try {
+      const scored = kwRows.filter(k => k.qualityScore != null);
+      const avgQS = scored.length ? scored.reduce((s, k) => s + k.qualityScore, 0) / scored.length : 0;
+      const dist = { low: 0, mid: 0, high: 0 };
+      scored.forEach(k => {
+        if (k.qualityScore >= 7) dist.high++;
+        else if (k.qualityScore >= 4) dist.mid++;
+        else dist.low++;
+      });
+      await adminFetch('/api/qs-snapshot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountId:       account.id,
+          campaignId:      campaign.id,
+          campaignName:    campaign.name,
+          avgQS:           parseFloat(avgQS.toFixed(2)),
+          keywordCount:    scored.length,
+          qsDistribution:  dist,
+        }),
+      });
+      toast(`QS snapshot saved for ${campaign.name}`);
+      // Invalidate cached snapshots so the trend tab re-fetches
+      setQsSnapshots(prev => { const n = { ...prev }; delete n[campaign.id]; return n; });
+    } catch (e) {
+      toast(e.message || 'Failed to save snapshot');
+    } finally {
+      setSavingQsSnap(null);
+    }
+  };
+
+  const loadQsSnapshots = async (account, campaign) => {
+    if (qsSnapshots[campaign.id]) return; // already loaded
+    setQsSnapLoading(campaign.id);
+    try {
+      const res = await adminFetch(`/api/qs-snapshot?accountId=${account.id}&campaignId=${campaign.id}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed');
+      setQsSnapshots(prev => ({ ...prev, [campaign.id]: data.snapshots || [] }));
+    } catch (e) {
+      toast(e.message);
+      setQsSnapshots(prev => ({ ...prev, [campaign.id]: [] }));
+    } finally {
+      setQsSnapLoading(null);
+    }
   };
 
   // Load ads for a specific ad group
@@ -536,6 +658,8 @@ export default function AdsAccountsPage() {
     setKeywordRows({});
     setSearchTermRows({});
     setAdRows({});
+    setQsSnapshots({});
+    setAddNegResult({});
     setExpandedCampaignId(null);
     setExpandedAdGroupId(null);
   }, [datePreset, customFrom, customTo, includePaused]);
@@ -1518,6 +1642,9 @@ export default function AdsAccountsPage() {
                                         <th>CPC</th>
                                         <th>Conv.</th>
                                         <th>IS%</th>
+                                        <th title="Impression share lost due to budget">IS Lost (B)</th>
+                                        <th title="Impression share lost due to ad rank">IS Lost (R)</th>
+                                        <th>Avg QS</th>
                                       </tr>
                                     </thead>
                                     <tbody>
@@ -1528,7 +1655,15 @@ export default function AdsAccountsPage() {
                                         const agRows    = adGroupRows[c.id] || [];
                                         const kwRows    = keywordRows[c.id] || [];
                                         const stRows    = searchTermRows[c.id] || [];
-                                        const isShare   = cm.searchImprShare != null ? (parseFloat(cm.searchImprShare) * 100).toFixed(1) + '%' : '—';
+                                        const isShare        = cm.searchImprShare != null ? (parseFloat(cm.searchImprShare) * 100).toFixed(1) + '%' : '—';
+                                        const isLostBudget   = cm.budgetLostImprShare != null ? (parseFloat(cm.budgetLostImprShare) * 100).toFixed(1) + '%' : '—';
+                                        const isLostRank     = cm.rankLostImprShare  != null ? (parseFloat(cm.rankLostImprShare)  * 100).toFixed(1) + '%' : '—';
+                                        const scoredKws      = kwRows.filter(k => k.qualityScore != null);
+                                        const avgQS          = campaignQS[a.id]?.[c.id] != null
+                                          ? campaignQS[a.id][c.id].toFixed(1)
+                                          : scoredKws.length
+                                            ? (scoredKws.reduce((s, k) => s + k.qualityScore, 0) / scoredKws.length).toFixed(1)
+                                            : null;
                                         return (
                                           <React.Fragment key={c.id}>
                                             <tr>
@@ -1552,13 +1687,16 @@ export default function AdsAccountsPage() {
                                               <td>{cm.avgCpcMicros ? fmtCost(cm.avgCpcMicros, a.currencyCode) : fmtCPC(cm.costMicros, cm.clicks, a.currencyCode)}</td>
                                               <td>{cm.conversions ? fmtNum(Math.round(cm.conversions)) : '—'}</td>
                                               <td className={styles.drillMeta}>{isShare}</td>
+                                              <td className={styles.isLostBudget}>{isLostBudget}</td>
+                                              <td className={styles.isLostRank}>{isLostRank}</td>
+                                              <td className={styles.qsCell}>{avgQS != null ? <span className={styles[`qs${avgQS >= 7 ? 'High' : avgQS >= 4 ? 'Mid' : 'Low'}`]}>{avgQS}</span> : '—'}</td>
                                             </tr>
                                             {cExpanded && (
                                               <tr className={styles.drillRow}>
-                                                <td colSpan={11} className={styles.drillCell}>
+                                                <td colSpan={14} className={styles.drillCell}>
                                                   {/* Tab bar */}
                                                   <div className={styles.drillTabBar}>
-                                                    {[['adGroups','Ad Groups'],['keywords','Keywords'],['searchTerms','Search Terms']].map(([tab,label]) => (
+                                                    {[['adGroups','Ad Groups'],['keywords','Keywords'],['searchTerms','Search Terms'],['wastedSpend','Wasted Spend'],['qsTrend','QS Trend']].map(([tab,label]) => (
                                                       <button
                                                         key={tab}
                                                         className={`${styles.drillTab}${activeTab === tab ? ` ${styles.drillTabActive}` : ''}`}
@@ -1690,6 +1828,24 @@ export default function AdsAccountsPage() {
                                                               onChange={e => setKwSearchFilter(e.target.value)}
                                                             />
                                                             <span className={styles.drillFilterCount}>{filteredKws.length} of {kwRows.length}</span>
+                                                            <button
+                                                              className={styles.kwRefreshBtn}
+                                                              title="Force refresh keywords from Google Ads"
+                                                              onClick={() => {
+                                                                const { from, to } = computeDateRange(datePreset, customFrom, customTo);
+                                                                if (!from || !to) return;
+                                                                const cacheKey = `gads_kw_${a.id}_${c.id}_${from}_${to}_${includePaused ? '1' : '0'}`;
+                                                                try { localStorage.removeItem(cacheKey); } catch { /* ignore */ }
+                                                                setKeywordRows(prev => { const n = { ...prev }; delete n[c.id]; return n; });
+                                                                loadCampaignTabData(a, c, 'keywords');
+                                                              }}
+                                                            >↻</button>
+                                                            <button
+                                                              className={styles.qsSnapBtn}
+                                                              disabled={savingQsSnap === c.id}
+                                                              onClick={() => saveQsSnapshot(a, c, kwRows)}
+                                                              title="Save a QS snapshot to track trends over time"
+                                                            >{savingQsSnap === c.id ? 'Saving…' : '📸 Save QS Snapshot'}</button>
                                                           </div>
                                                           <table className={styles.drillTable}>
                                                             <thead><tr>
@@ -1715,6 +1871,8 @@ export default function AdsAccountsPage() {
                                                                 const km = kw.metrics || {};
                                                                 const qs = kw.qualityScore != null ? kw.qualityScore : '—';
                                                                 const is = km.searchImprShare != null ? (parseFloat(km.searchImprShare)*100).toFixed(1)+'%' : '—';
+                                                                const subScoreClass = v => v === 'ABOVE_AVERAGE' ? styles.subScoreHigh : v === 'BELOW_AVERAGE' ? styles.subScoreLow : v === 'AVERAGE' ? styles.subScoreMid : styles.drillMeta;
+                                                                const subScoreLabel = v => v === 'ABOVE_AVERAGE' ? '↑' : v === 'BELOW_AVERAGE' ? '↓' : v === 'AVERAGE' ? '—' : v || '—';
                                                                 return (
                                                                   <tr key={kw.id}>
                                                                     <td className={styles.kwText}>{kw.text}</td>
@@ -1722,9 +1880,9 @@ export default function AdsAccountsPage() {
                                                                     <td className={styles.drillMeta}>{kw.adGroupName}</td>
                                                                     <td><StatusBadge status={kw.status} /></td>
                                                                     <td className={styles.qsCell}>{qs !== '—' ? <span className={styles[`qs${qs > 6 ? 'High' : qs > 3 ? 'Mid' : 'Low'}`]}>{qs}</span> : '—'}</td>
-                                                                    <td className={styles.drillMeta}>{kw.predictedCtr || '—'}</td>
-                                                                    <td className={styles.drillMeta}>{kw.adRelevance || '—'}</td>
-                                                                    <td className={styles.drillMeta}>{kw.landingPage || '—'}</td>
+                                                                    <td className={subScoreClass(kw.predictedCtr)} title={kw.predictedCtr}>{subScoreLabel(kw.predictedCtr)}</td>
+                                                                    <td className={subScoreClass(kw.adRelevance)} title={kw.adRelevance}>{subScoreLabel(kw.adRelevance)}</td>
+                                                                    <td className={subScoreClass(kw.landingPage)} title={kw.landingPage}>{subScoreLabel(kw.landingPage)}</td>
                                                                     <td className={styles.drillMeta}>{kw.bidMicros ? fmtCost(kw.bidMicros, a.currencyCode) : '—'}</td>
                                                                     <td>{km.impressions ? fmtNum(km.impressions) : '—'}</td>
                                                                     <td>{km.clicks ? fmtNum(km.clicks) : '—'}</td>
@@ -1742,8 +1900,6 @@ export default function AdsAccountsPage() {
                                                       );
                                                     })()
                                                   )}
-
-                                                  {/* ── Search Terms tab ── */}
                                                   {activeTab === 'searchTerms' && (
                                                     searchTermLoading === c.id ? <div className={styles.drillLoading}>Loading search terms…</div> :
                                                     stRows.length === 0 ? <div className={styles.drillEmpty}>No search terms data found for this period.</div> : (
@@ -1758,9 +1914,13 @@ export default function AdsAccountsPage() {
                                                           <th>Cost</th>
                                                           <th>Avg CPC</th>
                                                           <th>Conv.</th>
+                                                          <th>Actions</th>
                                                         </tr></thead>
                                                         <tbody>
-                                                          {stRows.map((st, i) => (
+                                                          {stRows.map((st, i) => {
+                                                            const negKey = `${st.term}__${c.id}`;
+                                                            const negResult = addNegResult[negKey];
+                                                            return (
                                                             <tr key={i}>
                                                               <td className={styles.kwText}>{st.term}</td>
                                                               <td className={styles.drillMeta}>{st.status}</td>
@@ -1771,11 +1931,123 @@ export default function AdsAccountsPage() {
                                                               <td>{st.costMicros ? fmtCost(st.costMicros, a.currencyCode) : '—'}</td>
                                                               <td>{st.avgCpcMicros ? fmtCost(st.avgCpcMicros, a.currencyCode) : '—'}</td>
                                                               <td>{st.conversions ? fmtNum(Math.round(st.conversions)) : '—'}</td>
+                                                              <td>
+                                                                {negResult === 'ok'
+                                                                  ? <span className={styles.negKeyOk}>✓ Added</span>
+                                                                  : negResult
+                                                                    ? <span className={styles.negKeyErr} title={negResult}>✗ Failed</span>
+                                                                    : <button
+                                                                        className={styles.negKeyBtn}
+                                                                        disabled={addingNeg[negKey]}
+                                                                        onClick={() => handleAddNegative(a, c.id, st.term)}
+                                                                        title="Add as campaign-level exact negative keyword"
+                                                                      >{addingNeg[negKey] ? '…' : '− Neg'}</button>
+                                                                }
+                                                              </td>
                                                             </tr>
-                                                          ))}
+                                                            );
+                                                          })}
                                                         </tbody>
                                                       </table>
                                                     )
+                                                  )}
+
+                                                  {/* ── Wasted Spend tab ── */}
+                                                  {activeTab === 'wastedSpend' && (
+                                                    keywordLoading === c.id ? <div className={styles.drillLoading}>Loading keywords…</div> :
+                                                    (() => {
+                                                      const wasted = kwRows
+                                                        .filter(k => k.metrics?.costMicros > 1_000_000 && !k.metrics?.conversions)
+                                                        .sort((a, b) => b.metrics.costMicros - a.metrics.costMicros);
+                                                      return wasted.length === 0
+                                                        ? <div className={styles.drillEmpty}>No wasted spend found (keywords with cost &gt; $1 and zero conversions).</div>
+                                                        : (
+                                                          <>
+                                                            <div className={styles.wastedSpendHeader}>
+                                                              <span className={styles.wastedSpendBadge}>⚠ {wasted.length} keywords with spend and zero conversions</span>
+                                                              <span className={styles.wastedSpendTotal}>
+                                                                Total: {fmtCost(wasted.reduce((s, k) => s + k.metrics.costMicros, 0), a.currencyCode)}
+                                                              </span>
+                                                            </div>
+                                                            <table className={styles.drillTable}>
+                                                              <thead><tr>
+                                                                <th>Keyword</th>
+                                                                <th>Match</th>
+                                                                <th>Ad Group</th>
+                                                                <th>QS</th>
+                                                                <th>Impressions</th>
+                                                                <th>Clicks</th>
+                                                                <th>CTR</th>
+                                                                <th>Cost</th>
+                                                                <th>Avg CPC</th>
+                                                              </tr></thead>
+                                                              <tbody>
+                                                                {wasted.map((kw, i) => {
+                                                                  const km = kw.metrics || {};
+                                                                  const qs = kw.qualityScore != null ? kw.qualityScore : '—';
+                                                                  return (
+                                                                    <tr key={i} className={styles.wastedRow}>
+                                                                      <td className={styles.kwText}>{kw.text}</td>
+                                                                      <td><span className={`${styles.matchBadge} ${styles['match' + kw.matchType]}`}>{kw.matchType}</span></td>
+                                                                      <td className={styles.drillMeta}>{kw.adGroupName}</td>
+                                                                      <td className={styles.qsCell}>{qs !== '—' ? <span className={styles[`qs${qs > 6 ? 'High' : qs > 3 ? 'Mid' : 'Low'}`]}>{qs}</span> : '—'}</td>
+                                                                      <td>{km.impressions ? fmtNum(km.impressions) : '—'}</td>
+                                                                      <td>{km.clicks ? fmtNum(km.clicks) : '—'}</td>
+                                                                      <td>{fmtCTR(km.impressions, km.clicks)}</td>
+                                                                      <td className={styles.wastedCost}>{fmtCost(km.costMicros, a.currencyCode)}</td>
+                                                                      <td>{km.avgCpcMicros ? fmtCost(km.avgCpcMicros, a.currencyCode) : '—'}</td>
+                                                                    </tr>
+                                                                  );
+                                                                })}
+                                                              </tbody>
+                                                            </table>
+                                                          </>
+                                                        );
+                                                    })()
+                                                  )}
+
+                                                  {/* ── QS Trend tab ── */}
+                                                  {activeTab === 'qsTrend' && (
+                                                    qsSnapLoading === c.id ? <div className={styles.drillLoading}>Loading snapshots…</div> :
+                                                    (() => {
+                                                      const snaps = qsSnapshots[c.id] || [];
+                                                      const displayed = [...snaps].reverse(); // oldest first for timeline
+                                                      return snaps.length === 0
+                                                        ? (
+                                                          <div className={styles.drillEmpty}>
+                                                            No QS snapshots saved yet. Open the Keywords tab and click <strong>📸 Save QS Snapshot</strong> to begin tracking.
+                                                          </div>
+                                                        ) : (
+                                                          <table className={styles.drillTable}>
+                                                            <thead><tr>
+                                                              <th>Date</th>
+                                                              <th>Avg QS</th>
+                                                              <th>Keywords</th>
+                                                              <th>High (7-10)</th>
+                                                              <th>Mid (4-6)</th>
+                                                              <th>Low (1-3)</th>
+                                                            </tr></thead>
+                                                            <tbody>
+                                                              {displayed.map(s => {
+                                                                const dist = s.qsDistribution || {};
+                                                                const d = new Date(s.timestamp);
+                                                                const dateStr = isNaN(d) ? s.timestamp : d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+                                                                const qs = parseFloat(s.avgQS) || 0;
+                                                                return (
+                                                                  <tr key={s.id}>
+                                                                    <td className={styles.drillMeta}>{dateStr}</td>
+                                                                    <td className={styles.qsCell}><span className={styles[`qs${qs >= 7 ? 'High' : qs >= 4 ? 'Mid' : 'Low'}`]}>{qs.toFixed(1)}</span></td>
+                                                                    <td>{s.keywordCount}</td>
+                                                                    <td className={styles.qsHigh}>{dist.high ?? '—'}</td>
+                                                                    <td className={styles.qsMid}>{dist.mid ?? '—'}</td>
+                                                                    <td className={styles.qsLow}>{dist.low ?? '—'}</td>
+                                                                  </tr>
+                                                                );
+                                                              })}
+                                                            </tbody>
+                                                          </table>
+                                                        );
+                                                    })()
                                                   )}
                                                 </td>
                                               </tr>

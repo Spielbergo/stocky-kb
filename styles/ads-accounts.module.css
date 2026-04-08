@@ -403,6 +403,82 @@
 .qsMid  { color: #a16207; }
 .qsLow  { color: #dc2626; }
 
+/* QS sub-score badges (Pred. CTR / Ad Rel. / LP Exp.) */
+.subScoreHigh { color: #16a34a; font-weight: 600; text-align: center; }
+.subScoreMid  { color: #a16207; font-weight: 600; text-align: center; }
+.subScoreLow  { color: #dc2626; font-weight: 600; text-align: center; }
+
+/* Impression share lost columns */
+.isLostBudget { color: #d97706; text-align: right; font-size: 0.8rem; }
+.isLostRank   { color: #dc2626; text-align: right; font-size: 0.8rem; }
+
+/* Refresh keywords button */
+.kwRefreshBtn {
+  padding: 2px 7px;
+  font-size: 0.88rem;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 4px;
+  cursor: pointer;
+  line-height: 1;
+}
+.kwRefreshBtn:hover { color: var(--foreground); border-color: currentColor; }
+
+/* Save QS Snapshot button (inside keyword search row) */
+.qsSnapBtn {  margin-left: auto;
+  padding: 3px 10px;
+  font-size: 0.76rem;
+  background: rgba(99, 102, 241, 0.1);
+  color: #6366f1;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.qsSnapBtn:hover { background: rgba(99, 102, 241, 0.2); }
+.qsSnapBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Negative keyword button in search terms table */
+.negKeyBtn {
+  padding: 2px 8px;
+  font-size: 0.74rem;
+  background: rgba(220, 38, 38, 0.08);
+  color: #dc2626;
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.negKeyBtn:hover  { background: rgba(220, 38, 38, 0.15); }
+.negKeyBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+.negKeyOk  { color: #16a34a; font-size: 0.78rem; font-weight: 600; }
+.negKeyErr { color: #dc2626; font-size: 0.78rem; cursor: help; }
+
+/* Wasted spend tab */
+.wastedSpendHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0 8px;
+}
+.wastedSpendBadge {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #b45309;
+  background: rgba(234, 179, 8, 0.12);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  padding: 3px 10px;
+  border-radius: 5px;
+}
+.wastedSpendTotal {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #dc2626;
+}
+.wastedRow { background: rgba(220, 38, 38, 0.03); }
+.wastedCost { color: #dc2626; font-weight: 600; }
+
 /* Ad preview cards inside the nested drillTable */
 .adPreviewCell {
   min-width: 220px;

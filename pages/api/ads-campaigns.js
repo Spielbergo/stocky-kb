@@ -218,8 +218,8 @@ export default async function handler(req, res) {
             ad_group_criterion.status,
             ad_group_criterion.quality_info.quality_score,
             ad_group_criterion.quality_info.search_predicted_ctr,
-            ad_group_criterion.quality_info.ad_relevance,
-            ad_group_criterion.quality_info.landing_page_experience,
+            ad_group_criterion.quality_info.creative_quality_score,
+            ad_group_criterion.quality_info.post_click_quality_score,
             ad_group_criterion.cpc_bid_micros,
             ad_group.name,
             ad_group.id
@@ -272,8 +272,8 @@ export default async function handler(req, res) {
           status:        r.adGroupCriterion?.status || 'UNKNOWN',
           qualityScore:  qi.qualityScore ?? null,
           predictedCtr:  qi.searchPredictedCtr || '',
-          adRelevance:   qi.adRelevance || '',
-          landingPage:   qi.landingPageExperience || '',
+          adRelevance:   qi.creativeQualityScore || '',
+          landingPage:   qi.postClickQualityScore || '',
           bidMicros:     Number(r.adGroupCriterion?.cpcBidMicros || 0),
           adGroupId:     String(r.adGroup?.id || ''),
           adGroupName:   r.adGroup?.name || '',
@@ -306,10 +306,11 @@ export default async function handler(req, res) {
       `).catch(() => ({ results: [] }));
 
       const searchTerms = (data.results || []).map(r => ({
-        term:          r.searchTermView?.searchTerm || '',
-        status:        r.searchTermView?.status || '',
-        adGroupId:     String(r.adGroup?.id || ''),
-        adGroupName:   r.adGroup?.name || '',
+        term:                 r.searchTermView?.searchTerm || '',
+        status:               r.searchTermView?.status || '',
+        adGroupId:            String(r.adGroup?.id || ''),
+        adGroupName:          r.adGroup?.name || '',
+        campaignResourceName: `customers/${accountId}/campaigns/${campaignId}`,
         impressions:   Number(r.metrics?.impressions || 0),
         clicks:        Number(r.metrics?.clicks      || 0),
         costMicros:    Number(r.metrics?.costMicros  || 0),
@@ -318,6 +319,41 @@ export default async function handler(req, res) {
       }));
 
       return res.status(200).json({ searchTerms });
+    }
+
+    // ── Keyword QS Summary (all campaigns, no metrics) ─────────────────────
+    if (!campaignId && view === 'keywordQSSummary') {
+      const kwStatusFilter = showPaused
+        ? `ad_group_criterion.status IN ('ENABLED', 'PAUSED')`
+        : `ad_group_criterion.status = 'ENABLED'`;
+
+      const data = await gaqlSearch(token, accountId, `
+        SELECT
+          campaign.id,
+          ad_group_criterion.criterion_id,
+          ad_group_criterion.quality_info.quality_score
+        FROM keyword_view
+        WHERE ${kwStatusFilter}
+        LIMIT 10000
+      `).catch(() => ({ results: [] }));
+
+      // Group QS scores by campaign, compute avg
+      const byCampaign = {};
+      for (const r of (data.results || [])) {
+        const cid = String(r.campaign?.id || '');
+        const qs  = r.adGroupCriterion?.qualityInfo?.qualityScore;
+        if (!cid || qs == null) continue;
+        if (!byCampaign[cid]) byCampaign[cid] = { sum: 0, count: 0 };
+        byCampaign[cid].sum   += Number(qs);
+        byCampaign[cid].count += 1;
+      }
+
+      const summary = {};
+      for (const [cid, { sum, count }] of Object.entries(byCampaign)) {
+        summary[cid] = parseFloat((sum / count).toFixed(2));
+      }
+
+      return res.status(200).json({ summary });
     }
 
     // ── Campaigns list ──────────────────────────────────────────────────────
@@ -346,7 +382,9 @@ export default async function handler(req, res) {
           metrics.conversions,
           metrics.average_cpc,
           metrics.search_impression_share,
-          metrics.search_top_impression_share
+          metrics.search_top_impression_share,
+          metrics.search_budget_lost_impression_share,
+          metrics.search_rank_lost_impression_share
         FROM campaign
         WHERE segments.date BETWEEN '${dateFrom}' AND '${dateTo}'
           AND ${statusFilter}
@@ -371,8 +409,10 @@ export default async function handler(req, res) {
         costMicros:         Number(r.metrics?.costMicros  || 0),
         conversions:        Number(r.metrics?.conversions || 0),
         avgCpcMicros:       Number(r.metrics?.averageCpc  || 0),
-        searchImprShare:    r.metrics?.searchImpressionShare ?? null,
-        searchTopImprShare: r.metrics?.searchTopImpressionShare ?? null,
+        searchImprShare:       r.metrics?.searchImpressionShare ?? null,
+        searchTopImprShare:    r.metrics?.searchTopImpressionShare ?? null,
+        budgetLostImprShare:   r.metrics?.searchBudgetLostImpressionShare ?? null,
+        rankLostImprShare:     r.metrics?.searchRankLostImpressionShare ?? null,
       };
     }
 
@@ -384,7 +424,7 @@ export default async function handler(req, res) {
         status:         r.campaign?.status || 'UNKNOWN',
         channelType:    r.campaign?.advertisingChannelType || '',
         biddingStrategy: r.campaign?.biddingStrategyType || '',
-        metrics:        metricsById[id] || { impressions: 0, clicks: 0, costMicros: 0, conversions: 0, avgCpcMicros: 0 },
+        metrics:        metricsById[id] || { impressions: 0, clicks: 0, costMicros: 0, conversions: 0, avgCpcMicros: 0, searchImprShare: null, searchTopImprShare: null, budgetLostImprShare: null, rankLostImprShare: null },
       };
     });
 
