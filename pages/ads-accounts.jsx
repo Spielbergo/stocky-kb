@@ -414,6 +414,7 @@ export default function AdsAccountsPage() {
   const composerRef = useRef(null);
   const composerAnchorRef = useRef(null); // zero-height div just above composerOuter; used to cap height
   const dragStateRef = useRef(null);
+  const messagesAreaRef = useRef(null);
   const [hoveredBtn, setHoveredBtn] = useState(null); // kept for compatibility, hover handled via CSS
   const optMessagesEndRef = useRef(null);
   const optLatestUserMsgRef = useRef(null);
@@ -727,7 +728,7 @@ export default function AdsAccountsPage() {
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
   // Shrink/expand should only change height; keep width unchanged
-  const handleShrink = () => setComposerDims(d => ({ ...d, minimized: true, expanded: false, height: null }));
+  const handleShrink = () => setComposerDims(d => ({ ...d, minimized: false, expanded: false, height: 365 }));
   const handleExpand = () => setComposerDims(d => ({ ...d, minimized: false, expanded: true, height: 720 }));
 
   // Dragging only adjusts height. Invert vertical so dragging up increases height (user preference).
@@ -749,6 +750,7 @@ export default function AdsAccountsPage() {
   const handleDragEnd = () => {
     dragStateRef.current = null;
     draggingActiveRef.current = false;
+    document.body.style.cursor = '';
     window.removeEventListener('mousemove', handleDragging);
     window.removeEventListener('mouseup', handleDragEnd);
     // Keep ignoreNextClick true through the next tick so click handlers can detect it
@@ -766,6 +768,7 @@ export default function AdsAccountsPage() {
     };
     draggingActiveRef.current = true;
     ignoreNextClickRef.current = true;
+    document.body.style.cursor = 'ns-resize';
     window.addEventListener('mousemove', handleDragging);
     window.addEventListener('mouseup', handleDragEnd);
   };
@@ -2205,6 +2208,14 @@ export default function AdsAccountsPage() {
                     </button>
 
                     <button
+                      title="Scroll to top"
+                      onClick={() => { const main = composerAnchorRef.current?.closest('.admin-main'); if (main) main.scrollTop = 0; }}
+                      className={styles.composerCtrlBtn}
+                      aria-label="Scroll to top"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 11 12 6 7 11"/><polyline points="17 18 12 13 7 18"/></svg>
+                    </button>
+                    <button
                       title={composerDims.expanded ? 'Shrink' : 'Expand — click to toggle, hold to resize'}
                       onClick={(e) => {
                         if (ignoreNextClickRef.current) { return; }
@@ -2218,7 +2229,7 @@ export default function AdsAccountsPage() {
                     </button>
                   </div>
                 </div>
-                <div className={[styles.messagesArea, optMessages.length > 0 && styles.messagesAreaHasMsgs, composerDims.minimized && styles.messagesAreaMinimized].filter(Boolean).join(' ')}>
+                <div ref={messagesAreaRef} className={[styles.messagesArea, optMessages.length > 0 && styles.messagesAreaHasMsgs, composerDims.minimized && styles.messagesAreaMinimized].filter(Boolean).join(' ')}>
                   {(() => {
                     let lastUserIdx = -1;
                     for (let i = optMessages.length - 1; i >= 0; i--) {
