@@ -335,11 +335,7 @@ export default function AdsAccountsPage() {
   // ── Saved prompts ────────────────────────────────────────────────────────
   const [savedPrompts, setSavedPrompts] = useState([]);
   const [promptsOpen, setPromptsOpen] = useState(false);
-  // const [savePromptOpen, setSavePromptOpen] = useState(false);
-  const [newPromptLabel, setNewPromptLabel] = useState('');
-  const [newPromptText, setNewPromptText] = useState('');
   const [savingPrompt, setSavingPrompt] = useState(false);
-  const labelEditedRef = useRef(false); // true once user manually edits the label field
 
   const loadSavedPrompts = async () => {
     try {
@@ -350,21 +346,19 @@ export default function AdsAccountsPage() {
   };
 
   const saveNewPrompt = async () => {
-    if (!newPromptLabel.trim() || !newPromptText.trim()) return;
+    const text = optInput.trim();
+    if (!text) return;
+    const label = text.length > 55 ? text.slice(0, 55) + '\u2026' : text;
     setSavingPrompt(true);
     try {
       const res = await fetch('/api/ads-prompts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label: newPromptLabel, text: newPromptText }),
+        body: JSON.stringify({ label, text }),
       });
       const json = await res.json();
       if (res.ok) {
         setSavedPrompts(prev => [json.prompt, ...prev]);
-        setNewPromptLabel('');
-        setNewPromptText('');
-        labelEditedRef.current = false;
-        setSavePromptOpen(false);
         toast('Prompt saved');
       } else {
         toast(json.error || 'Save failed');
@@ -1208,53 +1202,13 @@ export default function AdsAccountsPage() {
               </h3>
               {promptsOpen && (
                 <>
-                  <div className={styles.savePromptForm}>
-                    <label className={styles.savePromptLabel}>Prompt text</label>
-                    <textarea
-                      className={`sidebar-input ${styles.savePromptTextarea}`}
-                      placeholder="Enter the prompt…"
-                      value={newPromptText}
-                      onChange={e => {
-                        const val = e.target.value;
-                        setNewPromptText(val);
-                        if (!labelEditedRef.current) {
-                          const t = val.trim();
-                          setNewPromptLabel(t.length > 55 ? t.slice(0, 55) + '…' : t);
-                        }
-                      }}
-                      rows={4}
-                    />
-                    <label className={styles.savePromptLabel}>
-                      Label
-                      <span className={styles.savePromptOptional}> (auto-filled — edit to override)</span>
-                    </label>
-                    <input
-                      className="sidebar-input"
-                      placeholder="Short label…"
-                      value={newPromptLabel}
-                      onChange={e => { labelEditedRef.current = true; setNewPromptLabel(e.target.value); }}
-                    />
-                    <div style={{ marginTop: 8 }}>
-                      <button
-                        className="upload-btn"
-                        onClick={saveNewPrompt}
-                        disabled={savingPrompt || !newPromptLabel.trim() || !newPromptText.trim()}
-                      >
-                        {savingPrompt ? 'Saving…' : 'Save Prompt'}
-                      </button>
-                    </div>
-                  </div>
-
                   {savedPrompts.length === 0 ? (
                     <p className={styles.savedPromptsEmpty}>No prompts saved yet.</p>
                   ) : (
                     <div className={styles.savedPromptsList}>
                       {savedPrompts.map(p => (
                         <div key={p.id} className={styles.savedPromptItem}>
-                          <div className={styles.savedPromptMeta}>
-                            {p.category && <span className={styles.savedPromptCategory}>{p.category}</span>}
-                            <span className={styles.savedPromptLabel} title={p.text}>{p.label}</span>
-                          </div>
+                          <p className={styles.savedPromptText}>{p.text}</p>
                           <div className={styles.savedPromptActions}>
                             <button
                               className={styles.savedPromptBtn}
@@ -1274,7 +1228,7 @@ export default function AdsAccountsPage() {
                                 setModal({
                                   open: true,
                                   variant: 'input',
-                                  title: `Edit prompt: ${p.label}`,
+                                  title: 'Edit prompt',
                                   inputPlaceholder: 'Edit prompt text...',
                                   inputValue: p.text || '',
                                   multiline: true,
@@ -1289,7 +1243,7 @@ export default function AdsAccountsPage() {
                                       });
                                       const json = await res.json();
                                       if (res.ok) {
-                                        setSavedPrompts(prev => prev.map(pp => pp.id === p.id ? { ...pp, text: json.prompt.text } : pp));
+                                        setSavedPrompts(prev => prev.map(pp => pp.id === p.id ? { ...pp, text: json.prompt.text, label: json.prompt.label } : pp));
                                         toast('Prompt updated');
                                         closeModal();
                                       } else {
@@ -1305,7 +1259,7 @@ export default function AdsAccountsPage() {
                             >✎</button>
                             <button
                               className={styles.savedPromptDelete}
-                              onClick={() => setModal({ open: true, variant: 'confirm', title: 'Delete prompt?', message: `"${p.label}" will be permanently deleted.`, confirmText: 'Delete', onConfirm: () => { deletePrompt(p.id); closeModal(); } })}
+                              onClick={() => setModal({ open: true, variant: 'confirm', title: 'Delete prompt?', message: 'This prompt will be permanently deleted.', confirmText: 'Delete', onConfirm: () => { deletePrompt(p.id); closeModal(); } })}
                               title="Delete prompt"
                             >✕</button>
                           </div>
@@ -2113,6 +2067,155 @@ export default function AdsAccountsPage() {
               </div>
             )}
 
+            {/* Account Optimizer composer — sticky to bottom of main scroll area */}
+            <div className={styles.composerOuter}>
+              {activeChatId && (
+                <div className={styles.chatTitleBar}>
+                  {chatSessions.find(s => s.id === activeChatId)?.title || 'Saved chat'}
+                </div>
+              )}
+              <div ref={composerRef} className={styles.composer} style={{
+                height: composerDims.height ? composerDims.height + 'px' : 'auto',
+                maxHeight: composerDims.height ? 'none' : '60vh',
+                minHeight: '120px',
+              }}>
+                <div className={styles.composerHeader}>
+                  {/* Left: chat session controls */}
+                  <div className={styles.chatSessionControls}>
+                    <button
+                      title="New chat"
+                      onClick={startNewChat}
+                      className={styles.composerCtrlBtn}
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                      </svg>
+                    </button>
+                    <button
+                      title="Chat history"
+                      onClick={() => setChatModalOpen(o => !o)}
+                      className={`${styles.composerCtrlBtn} ${styles.composerChatHistory}${chatModalOpen ? ` ${styles.chatHistoryBtnActive}` : ''}`}
+                    >Chat History</button>
+                  </div>
+
+                  <div className={styles.composerAccountLabel}>
+                    {filtered.length === 0 ? 'No account selected' : filtered.length === 1 ? filtered[0].name : `${filtered.length} accounts`}
+                  </div>
+                  <div className={styles.composerControls}>
+                    <button
+                      title="Generate & apply optimizations (dry-run)"
+                      onClick={handleOptimize}
+                      disabled={!filtered.length || optMutLoading}
+                      className={styles.optimizeBtn}
+                    >
+                      {optMutLoading
+                        ? <span className="arrow-loader" style={{ width: 12, height: 12 }} />
+                        : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                      }
+                      Optimize
+                    </button>
+
+                    <button
+                      className={`${styles.composerCtrlBtn} ${styles.composerSavePrompt}`}
+                      onClick={saveNewPrompt}
+                      disabled={savingPrompt || !optInput.trim()}
+                      title="Save current prompt"
+                    >
+                      {savingPrompt ? 'Saving…' : 'Save Prompt'}
+                    </button>
+
+                    <button
+                      title={composerDims.expanded ? 'Shrink' : 'Expand — click to toggle, hold to resize'}
+                      onClick={(e) => {
+                        if (ignoreNextClickRef.current) { return; }
+                        if (composerDims.expanded) handleShrink(); else handleExpand();
+                      }}
+                      onMouseDown={(e) => startHoldOrMoveDrag(e.clientX, e.clientY)}
+                      className={`${styles.composerCtrlBtn} ${composerDims.expanded ? styles.composerCtrlBtnShrink : styles.composerCtrlBtnExpand}`}
+                      aria-label="Resize composer"
+                    >
+                      <span className={styles.composerDragIcon} aria-hidden>⇳</span>
+                    </button>
+                  </div>
+                </div>
+                <div className={[styles.messagesArea, optMessages.length > 0 && styles.messagesAreaHasMsgs, composerDims.minimized && styles.messagesAreaMinimized].filter(Boolean).join(' ')}>
+                  {(() => {
+                    let lastUserIdx = -1;
+                    for (let i = optMessages.length - 1; i >= 0; i--) {
+                      if (optMessages[i].role === 'user') { lastUserIdx = i; break; }
+                    }
+                    return optMessages.map((m, i) => {
+                      const isUser = m.role === 'user';
+                      return (
+                        <div
+                          key={i}
+                          ref={isUser && i === lastUserIdx ? optLatestUserMsgRef : null}
+                          className={`${styles.messageRow}${isUser ? ` ${styles.messageRowUser}` : ''}`}
+                        >
+                          <div className={`${styles.messageBubble} ${isUser ? styles.messageBubbleUser : styles.messageBubbleAi}`}>
+                            {isUser
+                              ? <span className={styles.userBubbleText}>{m.content}</span>
+                              : <div
+                                  className={`markdown-body ${styles.aiContent}`}
+                                  dangerouslySetInnerHTML={{ __html: m.content ? marked.parse(m.content) : '<span style="opacity:0.4">Thinking…</span>' }}
+                                />
+                            }
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                  <div ref={optMessagesEndRef} />
+                </div>
+                <div className={styles.inputRow}>
+                  <textarea
+                    value={optInput}
+                    onChange={e => setOptInput(e.target.value)}
+                    placeholder={filtered.length > 0 ? `Ask about ${filtered.length === 1 ? filtered[0].name : `${filtered.length} accounts`} (e.g. "Which campaigns had the best ROAS?")` : 'Select an account to target, then ask a question...'}
+                    rows={1}
+                    className={styles.optTextarea}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleOptimizerSend(); } }}
+                  />
+                  <button className="generate-btn" onClick={handleOptimizerSend} disabled={optLoading} aria-label="Analyze">
+                    {optLoading
+                      ? <span className="arrow-loader" />
+                      : <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ display: 'block', margin: 'auto' }}>
+                          <circle cx="14" cy="14" r="14" fill="#fff" />
+                          <path d="M14 8V20M14 8L8 14M14 8L20 14" stroke="#111" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                    }
+                  </button>
+                </div>
+                <div className={styles.toolbarRow}>
+                  <div className={styles.toolbarSelectGroup}>
+                    <svg stroke="currentColor" fill="none" strokeWidth="2" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" className="select-icon" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+                    <select value={optPlatform} onChange={e => setOptPlatform(e.target.value)} className={`${styles.toolbarSelect} ${styles.toolbarSelectWide}`}>
+                      {['Campaign Performance','Ad Copy Review','Keyword Strategy','Budget Optimization','Conversion Analysis','Improve QS','Custom Analysis'].map(o => (<option key={o}>{o}</option>))}
+                    </select>
+                  </div>
+                  <div className={styles.toolbarSelectGroup}>
+                    <svg stroke="currentColor" fill="none" strokeWidth="2" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" className="select-icon" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+                    <select value={optSourceOption} onChange={e => setOptSourceOption(e.target.value)} className={styles.toolbarSelect}>
+                      <option value="mydata">My Data Only</option>
+                      <option value="combined">My Data + Model</option>
+                      <option value="model">Model Only</option>
+                    </select>
+                  </div>
+                  <div className={styles.toolbarSelectGroup}>
+                    <svg stroke="currentColor" fill="none" strokeWidth="2" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" className="select-icon" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg>
+                    <select value={optGeminiModel} onChange={e => setOptGeminiModel(e.target.value)} className={styles.toolbarSelect}>
+                      <optgroup label="Gemini 2.5">
+                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                        <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite</option>
+                      </optgroup>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
           </main>
         </div>
       </AuthGate>
@@ -2285,166 +2388,6 @@ export default function AdsAccountsPage() {
           </div>
         </div>
       )}
-
-      {/* Bottom-center Account Optimizer composer (resizable, centered name, controls) */}
-      <div className={styles.composerOuter} style={{ left: sidebarCollapsed ? 0 : 400 }}>
-        {activeChatId && (
-          <div className={styles.chatTitleBar}>
-            {chatSessions.find(s => s.id === activeChatId)?.title || 'Saved chat'}
-          </div>
-        )}
-        <div ref={composerRef} className={styles.composer} style={{
-          height: composerDims.height ? composerDims.height + 'px' : 'auto',
-          maxHeight: composerDims.height ? 'none' : '60vh',
-          minHeight: '120px',
-        }}>
-          <div className={styles.composerHeader}>
-            {/* Left: chat session controls */}
-            <div className={styles.chatSessionControls}>
-              <button
-                title="New chat"
-                onClick={startNewChat}
-                className={styles.composerCtrlBtn}
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                </svg>
-              </button>
-              <button
-                title="Chat history"
-                onClick={() => setChatModalOpen(o => !o)}
-                className={`${styles.composerCtrlBtn}${chatModalOpen ? ` ${styles.chatHistoryBtnActive}` : ''}`}
-              >☰</button>
-            </div>
-
-            {/* <div className={styles.composerTitle}>Account Optimizer</div> */}
-            <div className={styles.composerAccountLabel}>
-              {filtered.length === 0 ? 'No account selected' : filtered.length === 1 ? filtered[0].name : `${filtered.length} accounts`}
-            </div>
-            <div className={styles.composerControls}>
-              {/* Dry-run / Apply button */}
-              <button
-                title="Generate & apply optimizations (dry-run)"
-                onClick={handleOptimize}
-                disabled={!filtered.length || optMutLoading}
-                className={styles.optimizeBtn}
-              >
-                {optMutLoading
-                  ? <span className="arrow-loader" style={{ width: 12, height: 12 }} />
-                  : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                }
-                Optimize
-              </button>
-              
-              <button
-                title={composerDims.expanded ? 'Shrink' : 'Expand — click to toggle, hold to resize'}
-                onClick={(e) => {
-                  if (ignoreNextClickRef.current) { return; }
-                  if (composerDims.expanded) handleShrink(); else handleExpand();
-                }}
-                onMouseDown={(e) => startHoldOrMoveDrag(e.clientX, e.clientY)}
-                className={`${styles.composerCtrlBtn} ${composerDims.expanded ? styles.composerCtrlBtnShrink : styles.composerCtrlBtnExpand}`}
-                aria-label="Resize composer"
-              >
-                <span className={styles.composerDragIcon} aria-hidden>⇳</span>
-              </button>
-            </div>
-          </div>
-          <div className={[styles.messagesArea, optMessages.length > 0 && styles.messagesAreaHasMsgs, composerDims.minimized && styles.messagesAreaMinimized].filter(Boolean).join(' ')}>
-            {(() => {
-              // find index of the last user message to attach the scroll ref
-              let lastUserIdx = -1;
-              for (let i = optMessages.length - 1; i >= 0; i--) {
-                if (optMessages[i].role === 'user') { lastUserIdx = i; break; }
-              }
-              return optMessages.map((m, i) => {
-                const isUser = m.role === 'user';
-                return (
-                  <div
-                    key={i}
-                    ref={isUser && i === lastUserIdx ? optLatestUserMsgRef : null}
-                    className={`${styles.messageRow}${isUser ? ` ${styles.messageRowUser}` : ''}`}
-                  >
-                    <div className={`${styles.messageBubble} ${isUser ? styles.messageBubbleUser : styles.messageBubbleAi}`}>
-                      {isUser
-                        ? <span className={styles.userBubbleText}>{m.content}</span>
-                        : <div
-                            className={`markdown-body ${styles.aiContent}`}
-                            dangerouslySetInnerHTML={{ __html: m.content ? marked.parse(m.content) : '<span style="opacity:0.4">Thinking…</span>' }}
-                          />
-                      }
-                    </div>
-                  </div>
-                );
-              });
-            })()}
-            <div ref={optMessagesEndRef} />
-          </div>
-          <div className={styles.inputRow}>
-            <textarea
-              value={optInput}
-              onChange={e => setOptInput(e.target.value)}
-              placeholder={filtered.length > 0 ? `Ask about ${filtered.length === 1 ? filtered[0].name : `${filtered.length} accounts`} (e.g. "Which campaigns had the best ROAS?")` : 'Select an account to target, then ask a question...'}
-              rows={1}
-              className={styles.optTextarea}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleOptimizerSend(); } }}
-            />
-            <button className="generate-btn" onClick={handleOptimizerSend} disabled={optLoading} aria-label="Analyze">
-              {optLoading
-                ? <span className="arrow-loader" />
-                : <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ display: 'block', margin: 'auto' }}>
-                    <circle cx="14" cy="14" r="14" fill="#fff" />
-                    <path d="M14 8V20M14 8L8 14M14 8L20 14" stroke="#111" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-              }
-            </button>
-          </div>
-          {/* Toolbar: platform / source / model selects */}
-          <div className={styles.toolbarRow}>
-            <div className={styles.toolbarSelectGroup}>
-              <svg stroke="currentColor" fill="none" strokeWidth="2" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" className="select-icon" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
-              <select
-                value={optPlatform}
-                onChange={e => setOptPlatform(e.target.value)}
-                className={`${styles.toolbarSelect} ${styles.toolbarSelectWide}`}
-              >
-                {['Campaign Performance','Ad Copy Review','Keyword Strategy','Budget Optimization','Conversion Analysis','Improve QS','Custom Analysis'].map(o => (
-                  <option key={o}>{o}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className={styles.toolbarSelectGroup}>
-              <svg stroke="currentColor" fill="none" strokeWidth="2" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" className="select-icon" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
-              <select
-                value={optSourceOption}
-                onChange={e => setOptSourceOption(e.target.value)}
-                className={styles.toolbarSelect}
-              >
-                <option value="mydata">My Data Only</option>
-                <option value="combined">My Data + Model</option>
-                <option value="model">Model Only</option>
-              </select>
-            </div>
-
-            <div className={styles.toolbarSelectGroup}>
-              <svg stroke="currentColor" fill="none" strokeWidth="2" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" className="select-icon" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg>
-              <select
-                value={optGeminiModel}
-                onChange={e => setOptGeminiModel(e.target.value)}
-                className={styles.toolbarSelect}
-              >
-                <optgroup label="Gemini 2.5">
-                  <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                  <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                  <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite</option>
-                </optgroup>
-              </select>
-            </div>
-          </div>
-        </div>
-      </div>
 
       {/* ── Optimization Drawer ── */}
       {optDrawerOpen && (
