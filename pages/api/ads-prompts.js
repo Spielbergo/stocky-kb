@@ -6,8 +6,17 @@ export default async function handler(req, res) {
 
   // GET — list all saved prompts
   if (req.method === 'GET') {
-    const snap = await db.collection('ads_prompts').orderBy('createdAt', 'desc').get();
-    const prompts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const snap = await db.collection('ads_prompts').get();
+    const prompts = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => {
+        const aHas = a.sortOrder !== undefined;
+        const bHas = b.sortOrder !== undefined;
+        if (aHas && bHas) return a.sortOrder - b.sortOrder;
+        if (aHas) return -1;
+        if (bHas) return 1;
+        return (b.createdAt || 0) - (a.createdAt || 0);
+      });
     return res.status(200).json({ prompts });
   }
 
@@ -46,6 +55,20 @@ export default async function handler(req, res) {
     await docRef.update(updated);
     const newSnap = await docRef.get();
     return res.status(200).json({ prompt: { id: newSnap.id, ...newSnap.data() } });
+  }
+
+  // PATCH — persist reordered sort indices { order: [id, id, ...] }
+  if (req.method === 'PATCH') {
+    const { order } = req.body || {};
+    if (!Array.isArray(order) || order.length === 0) {
+      return res.status(400).json({ error: 'order array is required' });
+    }
+    const batch = db.batch();
+    order.forEach((id, idx) => {
+      batch.update(db.collection('ads_prompts').doc(String(id)), { sortOrder: idx });
+    });
+    await batch.commit();
+    return res.status(200).json({ ok: true });
   }
 
   return res.status(405).end();

@@ -124,7 +124,7 @@ export default function AdsAccountsPage() {
   const [expandedAdGroupId, setExpandedAdGroupId]       = useState(null);
   const [adRows, setAdRows]                             = useState({});   // { [adGroupId]: ad[] }
   const [adLoading, setAdLoading]                       = useState(null); // adGroupId being loaded
-  const [campaignStatusFilter, setCampaignStatusFilter] = useState('ENABLED'); // ENABLED | PAUSED | REMOVED | ALL
+  const [campaignStatusFilter, setCampaignStatusFilter] = useState('ENABLED'); // ENABLED | ENABLED_PAUSED | ALL
   const [kwSearchFilter, setKwSearchFilter]             = useState('');   // filter keywords by text
   const [sidebarCollapsed, setSidebarCollapsed]         = useState(false);
 
@@ -185,6 +185,7 @@ export default function AdsAccountsPage() {
   const [chatSessions, setChatSessions]   = useState([]);   // [{id,title,messages,updatedAt}]
   const [activeChatId, setActiveChatId]   = useState(null);
   const [chatModalOpen, setChatModalOpen] = useState(false);
+  const [chatSelected, setChatSelected]   = useState(new Set());
   const autoSaveTimerRef = useRef(null);
   const activeChatIdRef  = useRef(null);
 
@@ -206,6 +207,7 @@ export default function AdsAccountsPage() {
 
   // Auto-save chat messages when `optMessages` changes (debounced)
   useEffect(() => {
+    if (!optMessages.length) return; // nothing to save yet
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     autoSaveTimerRef.current = setTimeout(async () => {
       try {
@@ -238,13 +240,22 @@ export default function AdsAccountsPage() {
   const deleteChatSession = async (id) => {
     await fetch(`/api/chats?id=${id}`, { method: 'DELETE' });
     setChatSessions(prev => prev.filter(c => c.id !== id));
+    setChatSelected(prev => { const n = new Set(prev); n.delete(id); return n; });
     if (activeChatId === id) { setOptMessages([]); setActiveChatId(null); }
+  };
+
+  const deleteSelectedChats = async () => {
+    await Promise.all([...chatSelected].map(id => fetch(`/api/chats?id=${id}`, { method: 'DELETE' })));
+    setChatSessions(prev => prev.filter(c => !chatSelected.has(c.id)));
+    if (chatSelected.has(activeChatId)) { setOptMessages([]); setActiveChatId(null); }
+    setChatSelected(new Set());
   };
 
   const startNewChat = () => {
     setOptMessages([]);
     setActiveChatId(null);
     setChatModalOpen(false);
+    setChatSelected(new Set());
   };
 
   useEffect(() => { loadChatSessions(); }, []);
@@ -334,8 +345,10 @@ export default function AdsAccountsPage() {
 
   // ── Saved prompts ────────────────────────────────────────────────────────
   const [savedPrompts, setSavedPrompts] = useState([]);
-  const [promptsOpen, setPromptsOpen] = useState(false);
+  const [promptsOpen, setPromptsOpen] = useState(true);
   const [savingPrompt, setSavingPrompt] = useState(false);
+  const promptDragIdx = useRef(null);
+  const [promptDragOver, setPromptDragOver] = useState(null);
 
   const loadSavedPrompts = async () => {
     try {
@@ -372,6 +385,21 @@ export default function AdsAccountsPage() {
     setSavedPrompts(prev => prev.filter(p => p.id !== id));
   };
 
+  const reorderSavedPrompts = (fromIdx, toIdx) => {
+    if (fromIdx === toIdx) return;
+    setSavedPrompts(prev => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      fetch('/api/ads-prompts', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order: next.map(p => p.id) }),
+      }).catch(() => {});
+      return next;
+    });
+  };
+
   const loadPrompt = (text) => {
     setOptInput(text);
   };
@@ -382,12 +410,48 @@ export default function AdsAccountsPage() {
 
   useEffect(() => { loadSavedPrompts(); }, []);
   // Composer sizing / resize state
-  const [composerDims, setComposerDims] = useState({ height: null, minimized: false, expanded: false });
+  const [composerDims, setComposerDims] = useState({ height: 365, minimized: false, expanded: false });
   const composerRef = useRef(null);
+  const composerAnchorRef = useRef(null); // zero-height div just above composerOuter; used to cap height
   const dragStateRef = useRef(null);
   const [hoveredBtn, setHoveredBtn] = useState(null); // kept for compatibility, hover handled via CSS
   const optMessagesEndRef = useRef(null);
   const optLatestUserMsgRef = useRef(null);
+
+  // Ctrl+Shift+S — save current prompt text to saved prompts
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'S') {
+        e.preventDefault();
+        if (!optInput.trim()) {
+          toast('Enter text in the prompt box first');
+          return;
+        }
+        saveNewPrompt();
+        setPromptsOpen(true);
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [optInput]);
+
+  // Cap composer height when the table above grows and reduces available space
+  useEffect(() => {
+    const anchor = composerAnchorRef.current;
+    if (!anchor) return;
+    const main = anchor.closest('.admin-main');
+    if (!main) return;
+    const observer = new ResizeObserver(() => {
+      const mainH = main.clientHeight;
+      const anchorTop = anchor.offsetTop;
+      const available = mainH - anchorTop - 24; // 24px bottom padding
+      if (available > 80) {
+        setComposerDims(d => ({ ...d, height: Math.min(d.height ?? 365, available) }));
+      }
+    });
+    observer.observe(main);
+    return () => observer.disconnect();
+  }, []);
 
   // Scroll to top of latest user message when messages change
   useEffect(() => {
@@ -1206,9 +1270,21 @@ export default function AdsAccountsPage() {
                     <p className={styles.savedPromptsEmpty}>No prompts saved yet.</p>
                   ) : (
                     <div className={styles.savedPromptsList}>
-                      {savedPrompts.map(p => (
-                        <div key={p.id} className={styles.savedPromptItem}>
-                          <p className={styles.savedPromptText}>{p.text}</p>
+                      {savedPrompts.map((p, idx) => (
+                        <div
+                          key={p.id}
+                          className={`${styles.savedPromptItem}${promptDragOver === idx ? ` ${styles.savedPromptItemDragOver}` : ''}`}
+                          draggable
+                          onDragStart={() => { promptDragIdx.current = idx; }}
+                          onDragOver={e => { e.preventDefault(); setPromptDragOver(idx); }}
+                          onDragLeave={() => setPromptDragOver(null)}
+                          onDrop={() => { reorderSavedPrompts(promptDragIdx.current, idx); promptDragIdx.current = null; setPromptDragOver(null); }}
+                          onDragEnd={() => { promptDragIdx.current = null; setPromptDragOver(null); }}
+                        >
+                          <div className={styles.savedPromptTextRow}>
+                            <p className={styles.savedPromptText}>{p.text}</p>
+                            <div className={styles.savedPromptDragHandle} title="Drag to reorder">⠿</div>
+                          </div>
                           <div className={styles.savedPromptActions}>
                             <button
                               className={styles.savedPromptBtn}
@@ -1588,19 +1664,19 @@ export default function AdsAccountsPage() {
                                 ) : (
                                   <>
                                   <div className={styles.drillFilterBar}>
-                                    {['ENABLED','PAUSED','REMOVED','ALL'].map(f => (
+                                    {['ALL','ENABLED','ENABLED_PAUSED'].map(f => (
                                       <button
                                         key={f}
                                         className={`${styles.drillFilterBtn}${campaignStatusFilter === f ? ` ${styles.drillFilterBtnActive}` : ''}`}
                                         onClick={() => setCampaignStatusFilter(f)}
-                                      >{f === 'ENABLED' ? 'Enabled' : f === 'PAUSED' ? 'Paused' : f === 'REMOVED' ? 'Removed' : 'All'}</button>
+                                      >{f === 'ENABLED' ? 'Enabled' : f === 'ENABLED_PAUSED' ? 'Enabled, Paused' : 'All'}</button>
                                     ))}
                                     <span className={styles.drillFilterCount}>
                                       {(() => {
                                         const fc = campaigns.filter(c =>
                                           campaignStatusFilter === 'ALL' ? true :
                                           campaignStatusFilter === 'ENABLED' ? c.status === 'ENABLED' :
-                                          c.status === campaignStatusFilter
+                                          c.status === 'ENABLED' || c.status === 'PAUSED'
                                         ).length;
                                         return `${fc} campaign${fc !== 1 ? 's' : ''}`;
                                       })()}
@@ -1610,10 +1686,10 @@ export default function AdsAccountsPage() {
                                     const filteredCampaigns = campaigns.filter(c =>
                                       campaignStatusFilter === 'ALL' ? true :
                                       campaignStatusFilter === 'ENABLED' ? c.status === 'ENABLED' :
-                                      c.status === campaignStatusFilter
+                                      c.status === 'ENABLED' || c.status === 'PAUSED'
                                     );
                                     return filteredCampaigns.length === 0 ? (
-                                      <div className={styles.drillEmpty}>No {campaignStatusFilter.toLowerCase()} campaigns.</div>
+                                      <div className={styles.drillEmpty}>No {campaignStatusFilter === 'ENABLED_PAUSED' ? 'enabled or paused' : campaignStatusFilter.toLowerCase()} campaigns.</div>
                                     ) : (
                                   <table className={styles.drillTable}>
                                     <thead>
@@ -2067,7 +2143,10 @@ export default function AdsAccountsPage() {
               </div>
             )}
 
-            {/* Account Optimizer composer — sticky to bottom of main scroll area */}
+            {/* Anchor: zero-height marker used to cap composer height when table expands */}
+            <div ref={composerAnchorRef} style={{ height: 0 }} />
+
+            {/* Account Optimizer composer */}
             <div className={styles.composerOuter}>
               {activeChatId && (
                 <div className={styles.chatTitleBar}>
@@ -2226,8 +2305,14 @@ export default function AdsAccountsPage() {
           <div className={styles.chatHistoryModalBox} onClick={e => e.stopPropagation()}>
             <div className={styles.chatHistoryModalHead}>
               <span>Chat History</span>
+              {chatSelected.size > 0 && (
+                <button
+                  className={styles.chatHistoryDeleteSelectedBtn}
+                  onClick={() => setModal({ open: true, variant: 'confirm', title: `Delete ${chatSelected.size} chat${chatSelected.size > 1 ? 's' : ''}?`, message: 'The selected chats will be permanently deleted.', confirmText: 'Delete', onConfirm: () => { deleteSelectedChats(); closeModal(); } })}
+                >Delete {chatSelected.size} selected</button>
+              )}
               <button className={styles.chatHistoryModalNewBtn} onClick={startNewChat}>+ New chat</button>
-              <button className={styles.chatHistoryModalClose} onClick={() => setChatModalOpen(false)}>✕</button>
+              <button className={styles.chatHistoryModalClose} onClick={() => { setChatModalOpen(false); setChatSelected(new Set()); }}>✕</button>
             </div>
             {chatSessions.length === 0 ? (
               <div className={styles.chatHistoryEmpty}>No saved chats yet.</div>
@@ -2236,8 +2321,16 @@ export default function AdsAccountsPage() {
                 {chatSessions.map(s => (
                   <div
                     key={s.id}
-                    className={`${styles.chatHistoryItem}${activeChatId === s.id ? ` ${styles.chatHistoryItemActive}` : ''}`}
+                    className={`${styles.chatHistoryItem}${activeChatId === s.id ? ` ${styles.chatHistoryItemActive}` : ''}${chatSelected.has(s.id) ? ` ${styles.chatHistoryItemSelected}` : ''}`}
                   >
+                    <label className={styles.chatHistoryCheckLabel} onClick={e => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        className={styles.chatHistoryCheckbox}
+                        checked={chatSelected.has(s.id)}
+                        onChange={e => setChatSelected(prev => { const n = new Set(prev); e.target.checked ? n.add(s.id) : n.delete(s.id); return n; })}
+                      />
+                    </label>
                     <button className={styles.chatHistoryItemBtn} onClick={() => loadChatSession(s)} title={s.title}>
                       <span className={styles.chatHistoryItemTitle}>{s.title}</span>
                       <span className={styles.chatHistoryItemDate}>

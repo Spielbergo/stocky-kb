@@ -156,13 +156,12 @@
 }
 
 /* ── Accounts table ── */
-
 .tableWrapper {
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: 12px;
   overflow: auto;
-  margin-bottom: 300px;
+  margin-bottom: 10px;
 }
 
 .thSortable {
@@ -570,15 +569,11 @@
    pointer-events:none so the space above the chat box stays clickable.
    left is overridden by inline style to match sidebar width. */
 .composerOuter {
-  position: sticky;
-  bottom: 0;
-  z-index: 100;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   padding: 0 0 12px;
   gap: 6px;
-  background: none;
   margin-top: 24px;
 }
 
@@ -802,6 +797,33 @@
 }
 .chatHistoryItem:last-child { border-bottom: none; }
 .chatHistoryItem:hover { background: var(--input-bg); }
+
+.chatHistoryItemSelected { background: rgba(99,102,241,0.07); }
+
+.chatHistoryCheckLabel {
+  display: flex;
+  align-items: center;
+  padding: 0 4px 0 12px;
+  cursor: pointer;
+}
+.chatHistoryCheckbox {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  accent-color: var(--accent, #6366f1);
+}
+
+.chatHistoryDeleteSelectedBtn {
+  background: none;
+  border: 1px solid #dc2626;
+  color: #dc2626;
+  border-radius: 5px;
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chatHistoryDeleteSelectedBtn:hover { background: rgba(220,38,38,0.1); }
 
 .chatHistoryItemActive {
   border-left: 3px solid var(--accent, #6366f1);
@@ -1370,10 +1392,46 @@
   background: var(--saved-prompt-bg);
   border: 1px solid var(--card-border);
   border-radius: 8px;
-  padding: 9px 10px 7px;
+  padding: 10px 10px 13px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.savedPromptItem:active {
+  cursor: grabbing;
+}
+
+.savedPromptItemDragOver {
+  border-color: var(--accent, #6366f1);
+  background: rgba(99, 102, 241, 0.07);
+}
+
+.savedPromptTextRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.savedPromptTextRow .savedPromptText {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.savedPromptDragHandle {
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.55;
+  flex-shrink: 0;
+  cursor: grab;
+  user-select: none;
+  opacity: 0.45;
+  margin-top: 0;
+  padding: 0 2px;
+}
+
+.savedPromptDragHandle:hover {
+  opacity: 1;
 }
 
 .toggleRow {
