@@ -195,6 +195,11 @@ li {
   color: #fff;
 }
 
+.navbar-tools button {
+  color: rgb(187, 187, 187) !important;
+  background: none;
+}
+
 /* ── Admin layout ── */
 .admin-layout {
   display: flex;

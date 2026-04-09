@@ -566,16 +566,21 @@
 
 /* ── Composer ── */
 
+/* The outer wrapper spans bottom of the main content area.
+   pointer-events:none so the space above the chat box stays clickable.
+   left is overridden by inline style to match sidebar width. */
 .composerOuter {
   position: fixed;
-  bottom: 28px;
-  left: 58%;
-  transform: translateX(-50%);
+  bottom: 0;
+  right: 0;
   z-index: 1400;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
+  padding: 0 40px 12px;
   gap: 6px;
+  pointer-events: none;
+  transition: left 0.2s ease;
 }
 
 .chatTitleBar {
@@ -589,15 +594,19 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: min(980px, 94%);
+  max-width: 320px;
+  align-self: flex-start;
   box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+  pointer-events: auto;
 }
 
-/* Static visual properties only — width/height/minHeight remain inline (state-driven) */
+/* Static visual properties only — height/minHeight remain inline (state-driven).
+   Width always fills the composerOuter (which tracks the main content area). */
 .composer {
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: 12px;
+  pointer-events: auto;
   padding: 12px;
   box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
   display: flex;
@@ -651,6 +660,14 @@
   color: var(--foreground);
 }
 
+.composerCtrlBtn svg {
+  display: block;
+  flex-shrink: 0;
+  stroke: currentColor;
+  fill: none;
+  color: inherit;
+}
+
 .composerCtrlBtnShrink {
   font-size: 18px;
 }
@@ -679,6 +696,19 @@
 .composerDragHandle:hover {
   background: var(--card-border);
   color: var(--foreground);
+}
+
+.composerDragHandleActive:focus {
+  background: transparent;
+}
+
+/* plain-text drag icon for composer control (not SVG) */
+.composerDragIcon {
+  font-size: 15px;
+  line-height: 1;
+  color: rgba(136, 136, 136, 1);
+  display: inline-block;
+  vertical-align: middle;
 }
 
 /* ── Chat session controls ──────────────────────────────────────────── */
@@ -790,7 +820,7 @@
 }
 
 .chatHistoryItemTitle {
-  font-size: 0.82rem;
+  font-size: 1rem;
   color: var(--foreground);
   white-space: nowrap;
   overflow: hidden;
@@ -1467,7 +1497,7 @@
 .savedPromptBtnSend {
   /* background: rgba(99, 102, 241, 0.1); */
   /* border-color: rgba(99, 102, 241, 0.3); */
-  color: #6366f1;
+  /* color: #6366f1; */
 }
 
 .savedPromptBtnSend:hover {

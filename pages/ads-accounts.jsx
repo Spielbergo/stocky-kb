@@ -124,7 +124,7 @@ export default function AdsAccountsPage() {
   const [expandedAdGroupId, setExpandedAdGroupId]       = useState(null);
   const [adRows, setAdRows]                             = useState({});   // { [adGroupId]: ad[] }
   const [adLoading, setAdLoading]                       = useState(null); // adGroupId being loaded
-  const [campaignStatusFilter, setCampaignStatusFilter] = useState('ACTIVE'); // ACTIVE | PAUSED | REMOVED | ALL
+  const [campaignStatusFilter, setCampaignStatusFilter] = useState('ENABLED'); // ENABLED | PAUSED | REMOVED | ALL
   const [kwSearchFilter, setKwSearchFilter]             = useState('');   // filter keywords by text
   const [sidebarCollapsed, setSidebarCollapsed]         = useState(false);
 
@@ -192,32 +192,41 @@ export default function AdsAccountsPage() {
   useEffect(() => { activeChatIdRef.current = activeChatId; }, [activeChatId]);
 
   const genChatId = () => `chat_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-
   const loadChatSessions = async () => {
     try {
       const res = await fetch('/api/chats?profile=ads_optimizer');
-      if (res.ok) setChatSessions(await res.json());
-    } catch {}
+      if (res.ok) {
+        const json = await res.json();
+        setChatSessions(json || []);
+      }
+    } catch (e) {
+      // ignore
+    }
   };
 
-  // Auto-save: debounced 1.5 s after messages stop changing
+  // Auto-save chat messages when `optMessages` changes (debounced)
   useEffect(() => {
-    if (!optMessages.length) return;
-    let id = activeChatIdRef.current;
-    if (!id) {
-      id = genChatId();
-      activeChatIdRef.current = id;
-      setActiveChatId(id);
-    }
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    autoSaveTimerRef.current = setTimeout(() => {
-      const firstUser = optMessages.find(m => m.role === 'user')?.content || '';
-      const title = firstUser.length > 60 ? firstUser.slice(0, 60) + '…' : firstUser || 'Chat';
-      const doc = { id, title, messages: optMessages, profile: 'ads_optimizer', updatedAt: new Date().toISOString() };
-      fetch('/api/chats', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(doc) })
-        .catch(() => {});
-      setChatSessions(prev => [doc, ...prev.filter(c => c.id !== id)]);
+    autoSaveTimerRef.current = setTimeout(async () => {
+      try {
+        const id = activeChatIdRef.current || genChatId();
+        const firstUser = optMessages.find(m => m.role === 'user')?.content || '';
+        const title = firstUser.length > 60 ? firstUser.slice(0, 60) + '…' : firstUser || 'Chat';
+        const doc = { id, title, messages: optMessages, profile: 'ads_optimizer', updatedAt: new Date().toISOString() };
+        await fetch('/api/chats', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(doc) });
+        setChatSessions(prev => [doc, ...prev.filter(c => c.id !== id)]);
+        setActiveChatId(id);
+      } catch (e) {
+        // ignore save errors
+      }
     }, 1500);
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+    };
   }, [optMessages]);
 
   const loadChatSession = (session) => {
@@ -326,7 +335,7 @@ export default function AdsAccountsPage() {
   // ── Saved prompts ────────────────────────────────────────────────────────
   const [savedPrompts, setSavedPrompts] = useState([]);
   const [promptsOpen, setPromptsOpen] = useState(false);
-  const [savePromptOpen, setSavePromptOpen] = useState(false);
+  // const [savePromptOpen, setSavePromptOpen] = useState(false);
   const [newPromptLabel, setNewPromptLabel] = useState('');
   const [newPromptText, setNewPromptText] = useState('');
   const [savingPrompt, setSavingPrompt] = useState(false);
@@ -379,7 +388,7 @@ export default function AdsAccountsPage() {
 
   useEffect(() => { loadSavedPrompts(); }, []);
   // Composer sizing / resize state
-  const [composerDims, setComposerDims] = useState({ width: null, height: null, minimized: false, expanded: false });
+  const [composerDims, setComposerDims] = useState({ height: null, minimized: false, expanded: false });
   const composerRef = useRef(null);
   const dragStateRef = useRef(null);
   const [hoveredBtn, setHoveredBtn] = useState(null); // kept for compatibility, hover handled via CSS
@@ -394,13 +403,6 @@ export default function AdsAccountsPage() {
       optMessagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [optMessages]);
-
-  useEffect(() => {
-    if (composerDims.width === null && typeof window !== 'undefined') {
-      const w = Math.min(980, Math.floor(window.innerWidth * 0.94));
-      setComposerDims(d => ({ ...d, width: w }));
-    }
-  }, [composerDims.width]);
 
   // Close date picker when clicking outside
   useEffect(() => {
@@ -680,22 +682,70 @@ export default function AdsAccountsPage() {
     setComposerDims(d => ({ ...d, height: newH, minimized: false, expanded: false }));
   };
 
+  const holdTimerRef = useRef(null);
+  const tempMoveRef = useRef(null);
+  const tempUpRef = useRef(null);
+  const ignoreNextClickRef = useRef(false);
+  const draggingActiveRef = useRef(false);
+
   const handleDragEnd = () => {
     dragStateRef.current = null;
+    draggingActiveRef.current = false;
     window.removeEventListener('mousemove', handleDragging);
     window.removeEventListener('mouseup', handleDragEnd);
+    // Keep ignoreNextClick true through the next tick so click handlers can detect it
+    setTimeout(() => { ignoreNextClickRef.current = false; }, 0);
   };
 
-  const handleDragStart = (e) => {
-    e.preventDefault();
+  const startDragFromCoords = (startX, startY) => {
+    if (draggingActiveRef.current) return;
+    // initialize drag state using supplied coordinates
     dragStateRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
+      startX,
+      startY,
       startW: composerRef.current ? composerRef.current.offsetWidth : composerDims.width,
       startH: composerRef.current ? composerRef.current.offsetHeight : composerDims.height,
     };
+    draggingActiveRef.current = true;
+    ignoreNextClickRef.current = true;
     window.addEventListener('mousemove', handleDragging);
     window.addEventListener('mouseup', handleDragEnd);
+  };
+
+  const handleDragStart = (e) => {
+    // Backwards-compatible: used when starting drag directly from an event
+    e.preventDefault();
+    startDragFromCoords(e.clientX, e.clientY);
+  };
+
+  const cleanupTempListeners = () => {
+    if (tempMoveRef.current) { window.removeEventListener('mousemove', tempMoveRef.current); tempMoveRef.current = null; }
+    if (tempUpRef.current) { window.removeEventListener('mouseup', tempUpRef.current); tempUpRef.current = null; }
+    if (holdTimerRef.current) { clearTimeout(holdTimerRef.current); holdTimerRef.current = null; }
+  };
+
+  const startHoldOrMoveDrag = (clientX, clientY) => {
+    const HOLD_MS = 250;
+    const MOVE_THR = 6;
+    // schedule hold -> start drag
+    holdTimerRef.current = setTimeout(() => {
+      holdTimerRef.current = null;
+      startDragFromCoords(clientX, clientY);
+      cleanupTempListeners();
+    }, HOLD_MS);
+
+    // if user moves before HOLD_MS, start drag immediately
+    tempMoveRef.current = (ev) => {
+      if (Math.abs(ev.clientX - clientX) > MOVE_THR || Math.abs(ev.clientY - clientY) > MOVE_THR) {
+        startDragFromCoords(clientX, clientY);
+        cleanupTempListeners();
+      }
+    };
+    window.addEventListener('mousemove', tempMoveRef.current);
+
+    // if user releases before HOLD_MS, cancel
+    tempUpRef.current = () => { cleanupTempListeners(); };
+    window.addEventListener('mouseup', tempUpRef.current);
   };
 
   // ── CSV Import modal ──────────────────────────────────────────────────────
@@ -1075,7 +1125,7 @@ export default function AdsAccountsPage() {
   return (
     <ErrorBoundary>
       <AuthGate>
-        <NavBar />
+        <NavBar tools={{ onReloadCache: loadCached, onOpenAudit: () => { setAuditModalOpen(true); loadAuditLog(); }, onOpenOptSessions: () => setOptSessionsModalOpen(true) }} />
         <div className="admin-layout">
 
           {/* ── Sidebar ── */}
@@ -1120,15 +1170,7 @@ export default function AdsAccountsPage() {
                   <><span className="spinner spinner-sm spinner-white" style={{ marginRight: 6 }} />Syncing…</>
                 ) : '↻ Sync Accounts'}
               </button>
-              <button
-                className={`upload-btn ${styles.reloadCacheBtn}`}
-                onClick={loadCached}
-                disabled={loading || syncing}
-              >
-                {loading ? (
-                  <><span className="spinner spinner-sm" style={{ marginRight: 6 }} />Reloading…</>
-                ) : '↺ Reload Cache'}
-              </button>
+              
               {/* {syncedAt && (
                 <div className={styles.syncedAt}>
                   Last synced<br />
@@ -1137,7 +1179,7 @@ export default function AdsAccountsPage() {
               )} */}
             </div>
 
-            <div className="sidebar-section">
+            {/* <div className="sidebar-section">
               <h3 className="sidebar-section-title">Filter</h3>
               <input
                 className="sidebar-input"
@@ -1146,28 +1188,133 @@ export default function AdsAccountsPage() {
                 onChange={e => setSearch(e.target.value)}
                 style={{ marginBottom: 8 }}
               />
-              {uniqueStatuses.length > 2 && (
-                <>
-                  <div className="chart-toolbar-label" style={{ marginBottom: 5 }}>Status</div>
-                  <div className="period-btn-group">
-                    {uniqueStatuses.map(s => (
-                      <button
-                        key={s}
-                        className={`period-btn${statusFilter === s ? ' active' : ''}`}
-                        onClick={() => setStatusFilter(s)}
-                      >
-                        {s === 'ALL' ? 'All' : s.charAt(0) + s.slice(1).toLowerCase()}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-              {/* <label className={styles.toggleRow}>
+
+              <label className={styles.toggleRow}>
                 <span className={styles.toggleLabel}>Include paused campaigns</span>
                 <span className={`${styles.toggleSwitch}${includePaused ? ` ${styles.toggleSwitchOn}` : ''}`} onClick={() => setIncludePaused(v => !v)} role="checkbox" aria-checked={includePaused} tabIndex={0} onKeyDown={e => e.key === ' ' && setIncludePaused(v => !v)}>
                   <span className={styles.toggleThumb} />
                 </span>
-              </label> */}
+              </label>
+            </div> */}
+
+            {/* ── Prompts: save & browse ── */}
+            <div className="sidebar-section">
+              <h3
+                className={`sidebar-section-title ${styles.acctDropdownTitle}`}
+                onClick={() => setPromptsOpen(o => !o)}
+              >
+                <span>Prompts <span className="count-badge">{savedPrompts.length}</span></span>
+                <span className={styles.dropdownArrow}>{promptsOpen ? '▲' : '▼'}</span>
+              </h3>
+              {promptsOpen && (
+                <>
+                  <div className={styles.savePromptForm}>
+                    <label className={styles.savePromptLabel}>Prompt text</label>
+                    <textarea
+                      className={`sidebar-input ${styles.savePromptTextarea}`}
+                      placeholder="Enter the prompt…"
+                      value={newPromptText}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setNewPromptText(val);
+                        if (!labelEditedRef.current) {
+                          const t = val.trim();
+                          setNewPromptLabel(t.length > 55 ? t.slice(0, 55) + '…' : t);
+                        }
+                      }}
+                      rows={4}
+                    />
+                    <label className={styles.savePromptLabel}>
+                      Label
+                      <span className={styles.savePromptOptional}> (auto-filled — edit to override)</span>
+                    </label>
+                    <input
+                      className="sidebar-input"
+                      placeholder="Short label…"
+                      value={newPromptLabel}
+                      onChange={e => { labelEditedRef.current = true; setNewPromptLabel(e.target.value); }}
+                    />
+                    <div style={{ marginTop: 8 }}>
+                      <button
+                        className="upload-btn"
+                        onClick={saveNewPrompt}
+                        disabled={savingPrompt || !newPromptLabel.trim() || !newPromptText.trim()}
+                      >
+                        {savingPrompt ? 'Saving…' : 'Save Prompt'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {savedPrompts.length === 0 ? (
+                    <p className={styles.savedPromptsEmpty}>No prompts saved yet.</p>
+                  ) : (
+                    <div className={styles.savedPromptsList}>
+                      {savedPrompts.map(p => (
+                        <div key={p.id} className={styles.savedPromptItem}>
+                          <div className={styles.savedPromptMeta}>
+                            {p.category && <span className={styles.savedPromptCategory}>{p.category}</span>}
+                            <span className={styles.savedPromptLabel} title={p.text}>{p.label}</span>
+                          </div>
+                          <div className={styles.savedPromptActions}>
+                            <button
+                              className={styles.savedPromptBtn}
+                              onClick={() => loadPrompt(p.text)}
+                              title="Insert into composer"
+                            >Load</button>
+                            <button
+                              className={`${styles.savedPromptBtn} ${styles.savedPromptBtnSend}`}
+                              onClick={() => loadAndSendPrompt(p.text)}
+                              title="Insert and send"
+                            >Load + Send</button>
+                            <button
+                              className={styles.savedPromptEdit}
+                              onClick={() => {
+                                modalInputValueRef.current = p.text || '';
+                                setModalInputValue(p.text || '');
+                                setModal({
+                                  open: true,
+                                  variant: 'input',
+                                  title: `Edit prompt: ${p.label}`,
+                                  inputPlaceholder: 'Edit prompt text...',
+                                  inputValue: p.text || '',
+                                  multiline: true,
+                                  onConfirm: async () => {
+                                    const newText = modalInputValueRef.current || '';
+                                    if (newText.trim() === (p.text || '').trim()) { closeModal(); return; }
+                                    try {
+                                      const res = await fetch('/api/ads-prompts', {
+                                        method: 'PUT',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ id: p.id, text: newText })
+                                      });
+                                      const json = await res.json();
+                                      if (res.ok) {
+                                        setSavedPrompts(prev => prev.map(pp => pp.id === p.id ? { ...pp, text: json.prompt.text } : pp));
+                                        toast('Prompt updated');
+                                        closeModal();
+                                      } else {
+                                        toast(json.error || 'Update failed');
+                                      }
+                                    } catch (e) { toast('Update failed'); }
+                                  },
+                                  onInputChange: v => { modalInputValueRef.current = v; setModalInputValue(v); }
+                                });
+                              }}
+                              title="Edit prompt"
+                              aria-label="Edit prompt"
+                            >✎</button>
+                            <button
+                              className={styles.savedPromptDelete}
+                              onClick={() => setModal({ open: true, variant: 'confirm', title: 'Delete prompt?', message: `"${p.label}" will be permanently deleted.`, confirmText: 'Delete', onConfirm: () => { deletePrompt(p.id); closeModal(); } })}
+                              title="Delete prompt"
+                            >✕</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
 
             {accounts.length > 0 && (
@@ -1213,134 +1360,6 @@ export default function AdsAccountsPage() {
                 )}
               </div>
             )}
-
-            {/* ── Save a Prompt ── */}
-            <div className="sidebar-section">
-              <h3
-                className={`sidebar-section-title ${styles.acctDropdownTitle}`}
-                onClick={() => setSavePromptOpen(o => !o)}
-              >
-                <span>Save a Prompt</span>
-                <span className={styles.dropdownArrow}>{savePromptOpen ? '▲' : '▼'}</span>
-              </h3>
-              {savePromptOpen && (
-                <div className={styles.savePromptForm}>
-                  <label className={styles.savePromptLabel}>Prompt text</label>
-                  <textarea
-                    className={`sidebar-input ${styles.savePromptTextarea}`}
-                    placeholder="Enter the prompt…"
-                    value={newPromptText}
-                    onChange={e => {
-                      const val = e.target.value;
-                      setNewPromptText(val);
-                      if (!labelEditedRef.current) {
-                        const t = val.trim();
-                        setNewPromptLabel(t.length > 55 ? t.slice(0, 55) + '…' : t);
-                      }
-                    }}
-                    rows={4}
-                  />
-                  <label className={styles.savePromptLabel}>
-                    Label
-                    <span className={styles.savePromptOptional}> (auto-filled — edit to override)</span>
-                  </label>
-                  <input
-                    className="sidebar-input"
-                    placeholder="Short label…"
-                    value={newPromptLabel}
-                    onChange={e => { labelEditedRef.current = true; setNewPromptLabel(e.target.value); }}
-                  />
-                  <button
-                    className="upload-btn"
-                    onClick={saveNewPrompt}
-                    disabled={savingPrompt || !newPromptLabel.trim() || !newPromptText.trim()}
-                  >
-                    {savingPrompt ? 'Saving…' : 'Save Prompt'}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* ── Saved Prompts: browse & use ── */}
-            <div className="sidebar-section">
-              <h3
-                className={`sidebar-section-title ${styles.acctDropdownTitle}`}
-                onClick={() => setPromptsOpen(o => !o)}
-              >
-                <span>Saved Prompts <span className="count-badge">{savedPrompts.length}</span></span>
-                <span className={styles.dropdownArrow}>{promptsOpen ? '▲' : '▼'}</span>
-              </h3>
-              {promptsOpen && (
-                savedPrompts.length === 0 ? (
-                  <p className={styles.savedPromptsEmpty}>No prompts saved yet.</p>
-                ) : (
-                  <div className={styles.savedPromptsList}>
-                    {savedPrompts.map(p => (
-                      <div key={p.id} className={styles.savedPromptItem}>
-                        <div className={styles.savedPromptMeta}>
-                          {p.category && <span className={styles.savedPromptCategory}>{p.category}</span>}
-                          <span className={styles.savedPromptLabel} title={p.text}>{p.label}</span>
-                        </div>
-                        <div className={styles.savedPromptActions}>
-                          <button
-                            className={styles.savedPromptBtn}
-                            onClick={() => loadPrompt(p.text)}
-                            title="Insert into composer"
-                          >Load</button>
-                          <button
-                            className={`${styles.savedPromptBtn} ${styles.savedPromptBtnSend}`}
-                            onClick={() => loadAndSendPrompt(p.text)}
-                            title="Insert and send"
-                          >Load + Send</button>
-                          <button
-                            className={styles.savedPromptEdit}
-                            onClick={() => {
-                              modalInputValueRef.current = p.text || '';
-                              setModalInputValue(p.text || '');
-                              setModal({
-                                open: true,
-                                variant: 'input',
-                                title: `Edit prompt: ${p.label}`,
-                                inputPlaceholder: 'Edit prompt text...',
-                                inputValue: p.text || '',
-                                multiline: true,
-                                onConfirm: async () => {
-                                  const newText = modalInputValueRef.current || '';
-                                  if (newText.trim() === (p.text || '').trim()) { closeModal(); return; }
-                                  try {
-                                    const res = await fetch('/api/ads-prompts', {
-                                      method: 'PUT',
-                                      headers: { 'Content-Type': 'application/json' },
-                                      body: JSON.stringify({ id: p.id, text: newText })
-                                    });
-                                    const json = await res.json();
-                                    if (res.ok) {
-                                      setSavedPrompts(prev => prev.map(pp => pp.id === p.id ? { ...pp, text: json.prompt.text } : pp));
-                                      toast('Prompt updated');
-                                      closeModal();
-                                    } else {
-                                      toast(json.error || 'Update failed');
-                                    }
-                                  } catch (e) { toast('Update failed'); }
-                                },
-                                onInputChange: v => { modalInputValueRef.current = v; setModalInputValue(v); }
-                              });
-                            }}
-                            title="Edit prompt"
-                            aria-label="Edit prompt"
-                          >✎</button>
-                          <button
-                            className={styles.savedPromptDelete}
-                            onClick={() => setModal({ open: true, variant: 'confirm', title: 'Delete prompt?', message: `"${p.label}" will be permanently deleted.`, confirmText: 'Delete', onConfirm: () => { deletePrompt(p.id); closeModal(); } })}
-                            title="Delete prompt"
-                          >✕</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )
-              )}
-            </div>
 
           </aside>
 
@@ -1527,6 +1546,20 @@ export default function AdsAccountsPage() {
             {/* Accounts table */}
             {!loading && filtered.length > 0 && (
               <div className={styles.tableWrapper}>
+                {uniqueStatuses.length > 2 && (
+                  <div className={styles.drillFilterBar}>
+                    {uniqueStatuses.map(s => (
+                      <button
+                        key={s}
+                        className={`${styles.drillFilterBtn}${statusFilter === s ? ` ${styles.drillFilterBtnActive}` : ''}`}
+                        onClick={() => setStatusFilter(s)}
+                      >
+                        {s === 'ALL' ? 'All' : s.charAt(0) + s.slice(1).toLowerCase()}
+                      </button>
+                    ))}
+                    <span className={styles.drillFilterCount}>{filtered.length} account{filtered.length !== 1 ? 's' : ''}</span>
+                  </div>
+                )}
                 <table className="stocks-table">
                   <thead>
                     <tr>
@@ -1601,18 +1634,18 @@ export default function AdsAccountsPage() {
                                 ) : (
                                   <>
                                   <div className={styles.drillFilterBar}>
-                                    {['ACTIVE','PAUSED','REMOVED','ALL'].map(f => (
+                                    {['ENABLED','PAUSED','REMOVED','ALL'].map(f => (
                                       <button
                                         key={f}
                                         className={`${styles.drillFilterBtn}${campaignStatusFilter === f ? ` ${styles.drillFilterBtnActive}` : ''}`}
                                         onClick={() => setCampaignStatusFilter(f)}
-                                      >{f === 'ACTIVE' ? 'Active' : f === 'PAUSED' ? 'Paused' : f === 'REMOVED' ? 'Removed' : 'All'}</button>
+                                      >{f === 'ENABLED' ? 'Enabled' : f === 'PAUSED' ? 'Paused' : f === 'REMOVED' ? 'Removed' : 'All'}</button>
                                     ))}
                                     <span className={styles.drillFilterCount}>
                                       {(() => {
                                         const fc = campaigns.filter(c =>
                                           campaignStatusFilter === 'ALL' ? true :
-                                          campaignStatusFilter === 'ACTIVE' ? c.status === 'ENABLED' :
+                                          campaignStatusFilter === 'ENABLED' ? c.status === 'ENABLED' :
                                           c.status === campaignStatusFilter
                                         ).length;
                                         return `${fc} campaign${fc !== 1 ? 's' : ''}`;
@@ -1622,7 +1655,7 @@ export default function AdsAccountsPage() {
                                   {(() => {
                                     const filteredCampaigns = campaigns.filter(c =>
                                       campaignStatusFilter === 'ALL' ? true :
-                                      campaignStatusFilter === 'ACTIVE' ? c.status === 'ENABLED' :
+                                      campaignStatusFilter === 'ENABLED' ? c.status === 'ENABLED' :
                                       c.status === campaignStatusFilter
                                     );
                                     return filteredCampaigns.length === 0 ? (
@@ -2254,14 +2287,13 @@ export default function AdsAccountsPage() {
       )}
 
       {/* Bottom-center Account Optimizer composer (resizable, centered name, controls) */}
-      <div className={styles.composerOuter}>
+      <div className={styles.composerOuter} style={{ left: sidebarCollapsed ? 0 : 400 }}>
         {activeChatId && (
           <div className={styles.chatTitleBar}>
             {chatSessions.find(s => s.id === activeChatId)?.title || 'Saved chat'}
           </div>
         )}
         <div ref={composerRef} className={styles.composer} style={{
-          width: composerDims.width ? composerDims.width + 'px' : 'min(980px, 94%)',
           height: composerDims.height ? composerDims.height + 'px' : 'auto',
           maxHeight: composerDims.height ? 'none' : '60vh',
           minHeight: '120px',
@@ -2273,7 +2305,12 @@ export default function AdsAccountsPage() {
                 title="New chat"
                 onClick={startNewChat}
                 className={styles.composerCtrlBtn}
-              >✎</button>
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                </svg>
+              </button>
               <button
                 title="Chat history"
                 onClick={() => setChatModalOpen(o => !o)}
@@ -2281,7 +2318,7 @@ export default function AdsAccountsPage() {
               >☰</button>
             </div>
 
-            <div className={styles.composerTitle}>Account Optimizer</div>
+            {/* <div className={styles.composerTitle}>Account Optimizer</div> */}
             <div className={styles.composerAccountLabel}>
               {filtered.length === 0 ? 'No account selected' : filtered.length === 1 ? filtered[0].name : `${filtered.length} accounts`}
             </div>
@@ -2299,38 +2336,19 @@ export default function AdsAccountsPage() {
                 }
                 Optimize
               </button>
+              
               <button
-                title="Saved optimizations"
-                onClick={() => setOptSessionsModalOpen(true)}
-                className={styles.optHistoryBtn}
+                title={composerDims.expanded ? 'Shrink' : 'Expand — click to toggle, hold to resize'}
+                onClick={(e) => {
+                  if (ignoreNextClickRef.current) { return; }
+                  if (composerDims.expanded) handleShrink(); else handleExpand();
+                }}
+                onMouseDown={(e) => startHoldOrMoveDrag(e.clientX, e.clientY)}
+                className={`${styles.composerCtrlBtn} ${composerDims.expanded ? styles.composerCtrlBtnShrink : styles.composerCtrlBtnExpand}`}
+                aria-label="Resize composer"
               >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                {optSessions.length > 0 && <span className={styles.optHistoryCount}>{optSessions.length}</span>}
+                <span className={styles.composerDragIcon} aria-hidden>⇳</span>
               </button>
-              <button
-                title="Audit log — view & rollback applied changes"
-                onClick={() => { setAuditModalOpen(true); loadAuditLog(); }}
-                className={styles.optHistoryBtn}
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-              </button>
-              <button
-                title="Shrink"
-                onClick={handleShrink}
-                className={`${styles.composerCtrlBtn} ${styles.composerCtrlBtnShrink}`}
-              >−</button>
-              <button
-                title="Expand"
-                onClick={handleExpand}
-                className={`${styles.composerCtrlBtn} ${styles.composerCtrlBtnExpand}`}
-              >⤢</button>
-              <div
-                role="button"
-                tabIndex={0}
-                title="Drag to resize"
-                onMouseDown={handleDragStart}
-                className={styles.composerDragHandle}
-              >≡</div>
             </div>
           </div>
           <div className={[styles.messagesArea, optMessages.length > 0 && styles.messagesAreaHasMsgs, composerDims.minimized && styles.messagesAreaMinimized].filter(Boolean).join(' ')}>
