@@ -1286,7 +1286,7 @@ export default function AdsAccountsPage() {
                         >
                           <div className={styles.savedPromptTextRow}>
                             <p className={styles.savedPromptText}>{p.text}</p>
-                            <div className={styles.savedPromptDragHandle} title="Drag to reorder">⠿</div>
+                            <div className={styles.savedPromptDragHandle} title="Drag to reorder"></div>
                           </div>
                           <div className={styles.savedPromptActions}>
                             <button
