@@ -191,7 +191,8 @@ li {
   color: #fff;
 }
 .nav-link.active {
-  background: var(--accent);
+  /* background: var(--accent); */
+  background: rgb(22, 163, 74);
   color: #fff;
 }
 
@@ -243,7 +244,8 @@ li {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--accent);
+  /* background: var(--accent); */
+  background: rgb(22, 163, 74);
   border-radius: 9px;
   flex-shrink: 0;
 }
@@ -345,6 +347,7 @@ li {
   font-size: 0.88rem;
   border-radius: 7px;
   margin: 0;
+  background: rgb(22, 163, 74);
 }
 
 .sidebar-list-section {

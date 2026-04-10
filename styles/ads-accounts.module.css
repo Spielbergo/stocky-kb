@@ -307,8 +307,10 @@
 
 .drillFilterBtnActive {
   background: rgba(99, 102, 241, 0.12);
-  color: var(--accent, #6366f1);
-  border-color: var(--accent, #6366f1);
+  color: rgb(22, 163, 74);
+  border-color: rgb(22, 163, 74);
+  /* color: var(--accent, #6366f1);
+  border-color: var(--accent, #6366f1); */
   font-weight: 600;
 }
 
@@ -671,6 +673,8 @@
 .composerSavePrompt,
 .composerChatHistory {
   width: inherit;
+  color: rgb(22, 163, 74);
+  border-color: rgb(22, 163, 74);
 }
 
 .composerDragHandle {
