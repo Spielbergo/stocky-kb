@@ -36,6 +36,14 @@ const PROFILES = {
       { href: "/ads-accounts", label: "Accounts" },
     ],
   },
+  gbp: {
+    label: "Google Business Profile",
+    icon: "📍",
+    links: [
+      { href: "/", label: "Chat" },
+      { href: "/gbp-accounts", label: "Locations" },
+    ],
+  },
 };
 
 /** Pages that are shared across all profiles — never redirect away from these. */

@@ -12,6 +12,7 @@ const PLATFORM_OPTIONS = {
   social: ["Post Performance", "Content Strategy", "Audience Insights", "Competitor Analysis", "Engagement Analysis", "Custom Analysis"],
   ads:    ["Campaign Performance", "Ad Copy Review", "Keyword Strategy", "Budget Optimization", "Conversion Analysis", "Custom Analysis"],
   ads_bp: ["Campaign Performance", "Ad Copy Review", "Keyword Strategy", "Budget Optimization", "Conversion Analysis", "Custom Analysis"],
+  gbp: ["Profile Optimisation", "Review Strategy", "Post Ideas", "Competitor Analysis", "Local SEO", "Custom Analysis"],
 };
 
 const CHAT_CONFIG = {
@@ -30,6 +31,10 @@ const CHAT_CONFIG = {
   ads_bp: {
     heading:     "What Google Ads question or campaign do you want to analyze?",
     placeholder: "e.g., Which campaigns had the best ROAS this quarter?",
+  },
+  gbp: {
+    heading:     "What Google Business Profile question do you want to explore?",
+    placeholder: "e.g., How can I improve my review rating and local visibility?",
   },
 };
 

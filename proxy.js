@@ -10,7 +10,7 @@ const PROTECTED_PREFIXES = [
   '/api/qs-snapshot',
 ];
 
-export function middleware(request) {
+export function proxy(request) {
   const { pathname } = request.nextUrl;
 
   if (!PROTECTED_PREFIXES.some(p => pathname.startsWith(p))) {
