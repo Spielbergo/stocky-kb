@@ -757,19 +757,24 @@ export default function Home() {
           </h1>
           <div className="input-container">
             <label>
-              <textarea
-                style={{ width: "96%", marginTop: "6px", marginBottom: "0",  resize: "vertical" }}
-                placeholder={(CHAT_CONFIG[profile] ?? CHAT_CONFIG.stocks).placeholder}
-                rows={1}
-                value={userPrompt}
-                onChange={(e) => setUserPrompt(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleGenerate();
-                  }
-                }}
-              />
+              <div style={{ position: 'relative', width: '96%', marginTop: '6px', marginBottom: '0' }}>
+                <textarea
+                  style={{ width: '100%', resize: 'vertical', paddingRight: 36 }}
+                  placeholder={(CHAT_CONFIG[profile] ?? CHAT_CONFIG.stocks).placeholder}
+                  rows={2}
+                  value={userPrompt}
+                  onChange={(e) => setUserPrompt(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleGenerate();
+                    }
+                  }}
+                />
+                {userPrompt && (
+                  <button className="composer-clear-btn" onClick={() => setUserPrompt('')} onMouseDown={e => e.preventDefault()} aria-label="Clear input" tabIndex={-1}>✕</button>
+                )}
+              </div>
             </label>
             <div style={{ display: "flex", justifyContent: "space-between", paddingLeft: 5 }}>
               <div style={{ display: "flex", gap: "8px" }}>

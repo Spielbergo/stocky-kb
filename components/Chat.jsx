@@ -185,7 +185,10 @@ export default function Chat({ profile = 'stocks', persistChats = true, selected
               <div>
                 {messages.map((m,i) => (
                   <div key={i} style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize:12, fontWeight:700, color: m.role === 'user' ? 'var(--foreground)' : 'var(--muted)' }}>{m.role === 'user' ? 'You' : 'Optimizer'}</div>
+                    <div style={{ fontSize:12, fontWeight:700, color: m.role === 'user' ? 'var(--foreground)' : 'var(--muted)', display:'flex', alignItems:'center', gap:6 }}>
+                      {m.role === 'user' ? 'You' : 'Optimizer'}
+                      <button onClick={() => { navigator.clipboard.writeText(m.content); }} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', padding:'0 2px', display:'flex', alignItems:'center', opacity:0.6 }} title="Copy" onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0.6}><FiCopy size={12} /></button>
+                    </div>
                     <div style={{ marginTop:6 }} dangerouslySetInnerHTML={{ __html: m.content ? marked.parse(m.content) : '' }} />
                     {m.role === 'ai' && <Buttons content={m.content} timestamp={m.timestamp} wordCount={m.wordCount} />}
                   </div>
@@ -196,7 +199,12 @@ export default function Chat({ profile = 'stocks', persistChats = true, selected
           )}
 
           <div style={{ marginTop: 12 }}>
-            <textarea value={userPrompt} onChange={e => setUserPrompt(e.target.value)} placeholder={(CHAT_CONFIG[profile] ?? CHAT_CONFIG.stocks).placeholder} rows={2} style={{ width:'100%', padding:8, borderRadius:6 }} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleGenerate(); } }} />
+            <div style={{ position: 'relative', width: '100%' }}>
+              <textarea value={userPrompt} onChange={e => setUserPrompt(e.target.value)} placeholder={(CHAT_CONFIG[profile] ?? CHAT_CONFIG.stocks).placeholder} rows={2} style={{ width:'100%', padding:8, paddingRight:36, borderRadius:6 }} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleGenerate(); } }} />
+              {userPrompt && (
+                <button className="composer-clear-btn" onClick={() => setUserPrompt('')} onMouseDown={e => e.preventDefault()} aria-label="Clear input" tabIndex={-1}>✕</button>
+              )}
+            </div>
             <div style={{ display:'flex', justifyContent:'flex-end', marginTop:8 }}>
               <button onClick={handleGenerate} className='generate-btn' disabled={loading}>{loading ? '…' : 'Analyze'}</button>
             </div>

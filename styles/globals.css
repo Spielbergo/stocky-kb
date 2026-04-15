@@ -755,7 +755,7 @@ label[data-drag] {
   border-radius: 14px;
   padding: 24px;
   width: 100%;
-  max-width: 420px;
+  max-width: 560px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   display: flex;
   flex-direction: column;
@@ -777,14 +777,15 @@ label[data-drag] {
 
 .modal-input {
   width: 100%;
-  padding: 9px 12px;
+  padding: 12px 14px;
   border-radius: 8px;
   border: 1px solid var(--card-border);
   background: var(--input-bg);
   color: var(--foreground);
-  font-size: 0.9rem;
+  font-size: 1rem;
   margin-top: 4px;
   box-sizing: border-box;
+  min-height: 48px;
 }
 
 .modal-actions {
@@ -858,9 +859,9 @@ button {
   margin-right: 8px;
 }
 
-button:hover, button:focus {
+/* button:hover {
   background: var(--accent-hover);
-}
+} */
 
 button[disabled] {
   cursor: not-allowed;
@@ -1046,6 +1047,34 @@ p strong::before {
 
 .generate-btn svg {
   display: block;
+}
+
+.composer-clear-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: 1px solid var(--muted, #888);
+  cursor: pointer;
+  color: var(--muted, #888);
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.55;
+  transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.composer-clear-btn:hover {
+  opacity: 1;
+  color: var(--foreground);
+  border-color: var(--foreground);
 }
 
 .arrow-loader {

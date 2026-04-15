@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { marked } from 'marked';
+import { FiCopy, FiCheck } from 'react-icons/fi';
 import { adminFetch } from '../lib/admin-fetch';
 import AuthGate from '../components/AuthGate';
 import NavBar from '../components/NavBar';
@@ -141,6 +142,13 @@ export default function AdsAccountsPage() {
   const [savingQsSnap, setSavingQsSnap]       = useState(null); // campaignId being saved
 
   const toast = (msg) => { setToastMsg(msg); setTimeout(() => setToastMsg(''), 2500); };
+  const [copiedMsgIdx, setCopiedMsgIdx] = useState(null);
+  const handleMsgCopy = (content, idx) => {
+    navigator.clipboard.writeText(content);
+    setCopiedMsgIdx(idx);
+    toast('Copied to clipboard');
+    setTimeout(() => setCopiedMsgIdx(null), 1500);
+  };
   const closeModal  = () => setModal({ open: false });
 
   // ── Date range selector ────────────────────────────────────────────────────
@@ -349,6 +357,7 @@ export default function AdsAccountsPage() {
   const [savingPrompt, setSavingPrompt] = useState(false);
   const promptDragIdx = useRef(null);
   const [promptDragOver, setPromptDragOver] = useState(null);
+  const [expandedPromptIds, setExpandedPromptIds] = useState(new Set());
 
   const loadSavedPrompts = async () => {
     try {
@@ -406,6 +415,35 @@ export default function AdsAccountsPage() {
 
   const loadAndSendPrompt = (text) => {
     handleOptimizerSendWithText(text);
+  };
+
+  const togglePromptExpanded = (id) => {
+    setExpandedPromptIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllPrompts = () => {
+    if (expandedPromptIds.size === savedPrompts.length) {
+      setExpandedPromptIds(new Set());
+    } else {
+      setExpandedPromptIds(new Set(savedPrompts.map(p => p.id)));
+    }
+  };
+
+  const savePromptTitle = async (id, newLabel) => {
+    const trimmed = newLabel.trim();
+    if (!trimmed) return;
+    setSavedPrompts(prev => prev.map(p => p.id === id ? { ...p, label: trimmed } : p));
+    try {
+      await fetch('/api/ads-prompts', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, label: trimmed }),
+      });
+    } catch { /* silent — optimistic update already applied */ }
   };
 
   useEffect(() => { loadSavedPrompts(); }, []);
@@ -1272,79 +1310,138 @@ export default function AdsAccountsPage() {
                   {savedPrompts.length === 0 ? (
                     <p className={styles.savedPromptsEmpty}>No prompts saved yet.</p>
                   ) : (
-                    <div className={styles.savedPromptsList}>
-                      {savedPrompts.map((p, idx) => (
-                        <div
-                          key={p.id}
-                          className={`${styles.savedPromptItem}${promptDragOver === idx ? ` ${styles.savedPromptItemDragOver}` : ''}`}
-                          draggable
-                          onDragStart={() => { promptDragIdx.current = idx; }}
-                          onDragOver={e => { e.preventDefault(); setPromptDragOver(idx); }}
-                          onDragLeave={() => setPromptDragOver(null)}
-                          onDrop={() => { reorderSavedPrompts(promptDragIdx.current, idx); promptDragIdx.current = null; setPromptDragOver(null); }}
-                          onDragEnd={() => { promptDragIdx.current = null; setPromptDragOver(null); }}
-                        >
-                          <div className={styles.savedPromptTextRow}>
-                            <p className={styles.savedPromptText}>{p.text}</p>
-                            <div className={styles.savedPromptDragHandle} title="Drag to reorder"></div>
-                          </div>
-                          <div className={styles.savedPromptActions}>
-                            <button
-                              className={styles.savedPromptBtn}
-                              onClick={() => loadPrompt(p.text)}
-                              title="Insert into composer"
-                            >Load</button>
-                            <button
-                              className={`${styles.savedPromptBtn} ${styles.savedPromptBtnSend}`}
-                              onClick={() => loadAndSendPrompt(p.text)}
-                              title="Insert and send"
-                            >Load + Send</button>
-                            <button
-                              className={styles.savedPromptEdit}
-                              onClick={() => {
-                                modalInputValueRef.current = p.text || '';
-                                setModalInputValue(p.text || '');
-                                setModal({
-                                  open: true,
-                                  variant: 'input',
-                                  title: 'Edit prompt',
-                                  inputPlaceholder: 'Edit prompt text...',
-                                  inputValue: p.text || '',
-                                  multiline: true,
-                                  onConfirm: async () => {
-                                    const newText = modalInputValueRef.current || '';
-                                    if (newText.trim() === (p.text || '').trim()) { closeModal(); return; }
-                                    try {
-                                      const res = await fetch('/api/ads-prompts', {
-                                        method: 'PUT',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ id: p.id, text: newText })
-                                      });
-                                      const json = await res.json();
-                                      if (res.ok) {
-                                        setSavedPrompts(prev => prev.map(pp => pp.id === p.id ? { ...pp, text: json.prompt.text, label: json.prompt.label } : pp));
-                                        toast('Prompt updated');
+                    <>
+                      {/* ── Toggle all ── */}
+                      <button
+                        className={styles.savedPromptToggleAll}
+                        onClick={toggleAllPrompts}
+                      >
+                        {expandedPromptIds.size === savedPrompts.length ? '▲ Collapse all' : '▼ Expand all'}
+                      </button>
+                      <div className={styles.savedPromptsList}>
+                        {savedPrompts.map((p, idx) => {
+                          const isExpanded = expandedPromptIds.has(p.id);
+                          return (
+                            <div
+                              key={p.id}
+                              className={`${styles.savedPromptItem}${promptDragOver === idx ? ` ${styles.savedPromptItemDragOver}` : ''}`}
+                              draggable
+                              onDragStart={() => { promptDragIdx.current = idx; }}
+                              onDragOver={e => { e.preventDefault(); setPromptDragOver(idx); }}
+                              onDragLeave={() => setPromptDragOver(null)}
+                              onDrop={() => { reorderSavedPrompts(promptDragIdx.current, idx); promptDragIdx.current = null; setPromptDragOver(null); }}
+                              onDragEnd={() => { promptDragIdx.current = null; setPromptDragOver(null); }}
+                            >
+                              {/* ── Title bar ── */}
+                              <div
+                                className={styles.savedPromptTitleBar}
+                                onClick={() => togglePromptExpanded(p.id)}
+                                title={isExpanded ? 'Collapse' : 'Expand'}
+                                style={{ cursor: 'pointer' }}
+                              >
+                                <span className={styles.savedPromptToggleBtn}>
+                                  {isExpanded ? '▼' : '▶'}
+                                </span>
+
+                                <span
+                                  className={styles.savedPromptTitleText}
+                                  title={p.label}
+                                >
+                                  {p.label}
+                                </span>
+
+                                <button
+                                  className={styles.savedPromptTitleEditBtn}
+                                  title="Edit title"
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    modalInputValueRef.current = p.label || '';
+                                    setModalInputValue(p.label || '');
+                                    setModal({
+                                      open: true,
+                                      variant: 'input',
+                                      title: 'Edit prompt title',
+                                      inputPlaceholder: 'Enter a title…',
+                                      inputValue: p.label || '',
+                                      onConfirm: () => {
+                                        const val = modalInputValueRef.current.trim();
+                                        if (val) savePromptTitle(p.id, val);
                                         closeModal();
-                                      } else {
-                                        toast(json.error || 'Update failed');
-                                      }
-                                    } catch (e) { toast('Update failed'); }
-                                  },
-                                  onInputChange: v => { modalInputValueRef.current = v; setModalInputValue(v); }
-                                });
-                              }}
-                              title="Edit prompt"
-                              aria-label="Edit prompt"
-                            >✎</button>
-                            <button
-                              className={styles.savedPromptDelete}
-                              onClick={() => setModal({ open: true, variant: 'confirm', title: 'Delete prompt?', message: 'This prompt will be permanently deleted.', confirmText: 'Delete', onConfirm: () => { deletePrompt(p.id); closeModal(); } })}
-                              title="Delete prompt"
-                            >✕</button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                                      },
+                                      onInputChange: v => { modalInputValueRef.current = v; setModalInputValue(v); }
+                                    });
+                                  }}
+                                >✎</button>
+                                <button
+                                  className={styles.savedPromptDelete}
+                                  title="Delete prompt"
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    setModal({ open: true, variant: 'confirm', title: 'Delete prompt?', message: 'This prompt will be permanently deleted.', confirmText: 'Delete', onConfirm: () => { deletePrompt(p.id); closeModal(); } });
+                                  }}
+                                >✕</button>
+                              </div>
+
+                              {/* ── Collapsible body ── */}
+                              {isExpanded && (
+                                <div className={styles.savedPromptBody}>
+                                  <p className={styles.savedPromptText}>{p.text}</p>
+                                  <div className={styles.savedPromptActions}>
+                                    <button
+                                      className={styles.savedPromptBtn}
+                                      onClick={() => loadPrompt(p.text)}
+                                      title="Insert into composer"
+                                    >Load</button>
+                                    <button
+                                      className={`${styles.savedPromptBtn} ${styles.savedPromptBtnSend}`}
+                                      onClick={() => loadAndSendPrompt(p.text)}
+                                      title="Insert and send"
+                                    >Load + Send</button>
+                                    <button
+                                      className={styles.savedPromptEdit}
+                                      onClick={() => {
+                                        modalInputValueRef.current = p.text || '';
+                                        setModalInputValue(p.text || '');
+                                        setModal({
+                                          open: true,
+                                          variant: 'input',
+                                          title: 'Edit prompt',
+                                          inputPlaceholder: 'Edit prompt text...',
+                                          inputValue: p.text || '',
+                                          multiline: true,
+                                          onConfirm: async () => {
+                                            const newText = modalInputValueRef.current || '';
+                                            if (newText.trim() === (p.text || '').trim()) { closeModal(); return; }
+                                            try {
+                                              const res = await fetch('/api/ads-prompts', {
+                                                method: 'PUT',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ id: p.id, text: newText })
+                                              });
+                                              const json = await res.json();
+                                              if (res.ok) {
+                                                setSavedPrompts(prev => prev.map(pp => pp.id === p.id ? { ...pp, text: json.prompt.text, label: json.prompt.label } : pp));
+                                                toast('Prompt updated');
+                                                closeModal();
+                                              } else {
+                                                toast(json.error || 'Update failed');
+                                              }
+                                            } catch { toast('Update failed'); }
+                                          },
+                                          onInputChange: v => { modalInputValueRef.current = v; setModalInputValue(v); }
+                                        });
+                                      }}
+                                      title="Edit prompt text"
+                                      aria-label="Edit prompt text"
+                                    >✎ Edit text</button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
                   )}
                 </>
               )}
@@ -2237,21 +2334,39 @@ export default function AdsAccountsPage() {
                     }
                     return optMessages.map((m, i) => {
                       const isUser = m.role === 'user';
+                      const isCopied = copiedMsgIdx === i;
+                      const makeCopyBtn = (size) => (
+                        <button
+                          className={styles.msgCopyBtn}
+                          onClick={() => handleMsgCopy(m.content, i)}
+                          title="Copy"
+                          aria-label="Copy message"
+                        >{isCopied ? <FiCheck size={size} /> : <FiCopy size={size} />}</button>
+                      );
                       return (
                         <div
                           key={i}
                           ref={isUser && i === lastUserIdx ? optLatestUserMsgRef : null}
                           className={`${styles.messageRow}${isUser ? ` ${styles.messageRowUser}` : ''}`}
                         >
-                          <div className={`${styles.messageBubble} ${isUser ? styles.messageBubbleUser : styles.messageBubbleAi}`}>
-                            {isUser
-                              ? <span className={styles.userBubbleText}>{m.content}</span>
-                              : <div
+                          {isUser ? (
+                            <>
+                              <div className={styles.msgCopyUserWrap}>{makeCopyBtn(13)}</div>
+                              <div className={`${styles.messageBubble} ${styles.messageBubbleUser}`}>
+                                <span className={styles.userBubbleText}>{m.content}</span>
+                              </div>
+                            </>
+                          ) : (
+                            <div className={styles.msgAiWrap}>
+                              <div className={`${styles.messageBubble} ${styles.messageBubbleAi}`}>
+                                <div
                                   className={`markdown-body ${styles.aiContent}`}
                                   dangerouslySetInnerHTML={{ __html: m.content ? marked.parse(m.content) : '<span style="opacity:0.4">Thinking…</span>' }}
                                 />
-                            }
-                          </div>
+                              </div>
+                              <div className={styles.msgCopyAiWrap}>{makeCopyBtn(20)}</div>
+                            </div>
+                          )}
                         </div>
                       );
                     });
@@ -2259,14 +2374,25 @@ export default function AdsAccountsPage() {
                   <div ref={optMessagesEndRef} />
                 </div>
                 <div className={styles.inputRow}>
-                  <textarea
-                    value={optInput}
-                    onChange={e => setOptInput(e.target.value)}
-                    placeholder={filtered.length > 0 ? `Ask about ${filtered.length === 1 ? filtered[0].name : `${filtered.length} accounts`} (e.g. "Which campaigns had the best ROAS?")` : 'Select an account to target, then ask a question...'}
-                    rows={1}
-                    className={styles.optTextarea}
-                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleOptimizerSend(); } }}
-                  />
+                  <div className={styles.optTextareaWrap}>
+                    <textarea
+                      value={optInput}
+                      onChange={e => setOptInput(e.target.value)}
+                      placeholder={filtered.length > 0 ? `Ask about ${filtered.length === 1 ? filtered[0].name : `${filtered.length} accounts`} (e.g. "Which campaigns had the best ROAS?")` : 'Select an account to target, then ask a question...'}
+                      rows={2}
+                      className={styles.optTextarea}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleOptimizerSend(); } }}
+                    />
+                    {optInput && (
+                      <button
+                        className={styles.composerClearBtn}
+                        onClick={() => setOptInput('')}
+                        onMouseDown={e => e.preventDefault()}
+                        aria-label="Clear input"
+                        tabIndex={-1}
+                      >✕</button>
+                    )}
+                  </div>
                   <button className="generate-btn" onClick={handleOptimizerSend} disabled={optLoading} aria-label="Analyze">
                     {optLoading
                       ? <span className="arrow-loader" />
