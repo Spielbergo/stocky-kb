@@ -175,7 +175,7 @@ export default function AdsAccountsPage() {
   const [optLoading, setOptLoading] = useState(false);
   const [optPlatform, setOptPlatform] = useState('Campaign Performance');
   const [optSourceOption, setOptSourceOption] = useState('mydata');
-  const [optGeminiModel, setOptGeminiModel] = useState('gemini-2.5-flash-lite');
+  const [optGeminiModel, setOptGeminiModel] = useState('gemini-2.5-pro');
 
   // ── Dry-run / Apply drawer ───────────────────────────────────────────────
   const [optDrawerOpen,    setOptDrawerOpen]    = useState(false);
